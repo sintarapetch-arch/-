@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="th" class="h-full bg-slate-50 font-sans">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>PTS Engineering Division - Task & Site Management System</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome 6 CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Google Fonts: Prompt & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            pts: {
+              50: '#fff1f2',
+              100: '#ffe4e6',
+              600: '#e11d48',
+              700: '#be123c',
+              800: '#991b1b', // Corporate Dark Red
+              900: '#7f1d1d',
+              dark: '#0f172a',
+              slate: '#1e293b'
+            }
+          },
+          fontFamily: {
+            sans: ['Prompt', 'Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* Glassmorphism & Micro-animations */
+    .glass-header {
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(12px);
+    }
+
+    .task-card {
+      transition: all 0.2s ease-in-out;
+    }
+
+    /* ------------------------------------------------------------------
+     * MOBILE FIRST
+     * On phones the kanban stacks vertically, so a full-viewport minimum
+     * height per column would create six screens of empty space.
+     * ---------------------------------------------------------------- */
+    .kanban-col {
+      min-height: 0;
+    }
+
+    @media (min-width: 1024px) {
+      .kanban-col {
+        min-height: calc(100vh - 280px);
+      }
+    }
+
+    /* Hover lift is meaningless on touch and causes sticky :hover states */
+    @media (hover: hover) and (pointer: fine) {
+      .task-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.12);
+      }
+    }
+
+    /* Nothing should ever scroll the page sideways on a phone */
+    html, body {
+      overflow-x: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* Respect the iPhone notch / home indicator */
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* iOS zooms the page in when a focused input is under 16px */
+    @media (max-width: 767px) {
+      input, select, textarea {
+        font-size: 16px !important;
+      }
+    }
+
+    /* Comfortable touch targets for the small delete/remove chips */
+    @media (pointer: coarse) {
+      .touch-target {
+        min-width: 34px;
+        min-height: 34px;
+      }
+    }
+
+    /* Momentum scrolling inside the modals */
+    .scroll-body {
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+
+    /* A <td> ignores max-width, so the project-name column is clamped by an
+     * inner block. Plain CSS rather than an arbitrary Tailwind class, because
+     * the CDN JIT does not reliably generate those for injected table rows. */
+    @media (max-width: 639px) {
+      .cell-clamp {
+        max-width: 40vw;
+      }
+    }
+  </style>
+</head>
+<body class="h-full bg-slate-100 text-slate-800 flex flex-col antialiased selection:bg-pts-800 selection:text-white">
+
+  <!-- TOP APP HEADER -->
+  <header class="glass-header text-white sticky top-0 z-30 shadow-lg border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16 sm:h-20 gap-2">
+
+        <!-- Brand & Title -->
+        <div class="flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <div class="w-9 h-9 sm:w-12 sm:h-12 shrink-0 rounded-xl sm:rounded-2xl bg-gradient-to-br from-pts-800 to-pts-600 flex items-center justify-center text-white shadow-md shadow-pts-900/40 ring-2 ring-pts-700/50">
+            <i class="fa-solid fa-screwdriver-wrench text-base sm:text-xl"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <h1 class="text-sm sm:text-xl font-bold tracking-tight text-white font-sans truncate">
+                หจก. ปกรณ์ เทคนิคอล ซัพพลาย
+              </h1>
+              <span class="hidden lg:inline px-2.5 py-0.5 rounded-full text-xs font-semibold bg-pts-800 text-pts-100 border border-pts-700 shrink-0">
+                ฝ่ายวิศวกรรม
+              </span>
+            </div>
+            <p class="hidden sm:block text-xs text-slate-400 font-medium truncate">Pakorn Technical Supply Ltd., Part. — Engineering Division Task System</p>
+            <p class="sm:hidden text-[10px] text-slate-400 font-medium">ฝ่ายวิศวกรรม</p>
+          </div>
+        </div>
+
+        <!-- Header Controls & Status Bar -->
+        <div class="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <!-- Connection Status Indicator (dot only on phones) -->
+          <div id="connectionStatusBadge" class="hidden flex items-center gap-2 px-2 sm:px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-medium">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" id="statusDot"></span>
+            <span id="statusText" class="hidden lg:inline text-slate-300">Google Sheets Live</span>
+          </div>
+
+          <!-- API Settings Button -->
+          <button onclick="openConfigModal()" class="p-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 flex items-center gap-2 border border-slate-700 shadow-sm active:scale-95 touch-target" title="ตั้งค่า API">
+            <i class="fa-solid fa-sliders text-slate-400"></i>
+            <span class="hidden md:inline">ตั้งค่า API</span>
+          </button>
+
+          <!-- Refresh Data Button -->
+          <button onclick="fetchTasks({ fresh: true }).then(markActivity)" class="p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 border border-slate-700 shadow-sm active:scale-95 touch-target" title="รีเฟรชข้อมูล">
+            <i class="fa-solid fa-arrows-rotate text-slate-400" id="refreshIcon"></i>
+          </button>
+
+          <!-- Add Job Task Button (icon only on phones, FAB provides the labelled action) -->
+          <button onclick="openCreateModal()" class="hidden sm:flex px-4 py-2.5 rounded-2xl bg-gradient-to-r from-pts-800 to-pts-700 hover:from-pts-700 hover:to-pts-600 text-white text-sm font-semibold shadow-lg shadow-pts-900/30 transition duration-200 items-center gap-2 border border-pts-600 active:scale-95">
+            <i class="fa-solid fa-plus text-sm"></i>
+            <span>เปิดงานใหม่</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- METRICS DASHBOARD CARDS (ครบทุกสถานะ 1-8 + งานทั้งหมด + สัญญาใกล้ครบ) -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3.5">
+      
+      <!-- 1. งานที่ยังไม่ปิด (Active) -->
+      <div id="card-metric-ALL" onclick="filterByStatusQuick('ACTIVE_ALL')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-pts-800 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-pts-800 uppercase tracking-wider">งานที่ยังไม่ปิด (Active)</p>
+          <span class="w-8 h-8 rounded-xl bg-pts-50 text-pts-800 flex items-center justify-center text-sm group-hover:bg-pts-800 group-hover:text-white transition">
+            <i class="fa-solid fa-list-check"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-slate-900 mt-1" id="metricTotal">0</h3>
+        <p class="text-[11px] text-pts-700 mt-1 font-semibold">ยังไม่เสร็จ (สถานะ 1-7)</p>
+      </div>
+
+      <!-- 2. วางแผน / เตรียมอุปกรณ์ -->
+      <div id="card-metric-1" onclick="filterByStatusQuick('วางแผน / เตรียมอุปกรณ์')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-slate-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">1. วางแผน / อุปกรณ์</p>
+          <span class="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center text-sm group-hover:bg-slate-700 group-hover:text-white transition">
+            <i class="fa-solid fa-clipboard-list"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-slate-800 mt-1" id="metricPlan">0</h3>
+        <p class="text-[11px] text-slate-400 mt-1">เตรียมความพร้อม</p>
+      </div>
+
+      <!-- 3. แจ้งเข้าทำงาน -->
+      <div id="card-metric-2" onclick="filterByStatusQuick('แจ้งเข้าทำงาน')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-cyan-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-cyan-700 uppercase tracking-wider">2. แจ้งเข้าทำงาน</p>
+          <span class="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center text-sm group-hover:bg-cyan-600 group-hover:text-white transition">
+            <i class="fa-solid fa-passport"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-cyan-900 mt-1" id="metricCleared">0</h3>
+        <p class="text-[11px] text-cyan-600 mt-1">ขออนุมัติเข้าพื้นที่</p>
+      </div>
+
+      <!-- 4. เข้าปฏิบัติงานหน้างาน -->
+      <div id="card-metric-3" onclick="filterByStatusQuick('เข้าปฏิบัติงานหน้างาน')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-amber-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-amber-700 uppercase tracking-wider">3. ปฏิบัติงานหน้างาน</p>
+          <span class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-sm group-hover:bg-amber-600 group-hover:text-white transition">
+            <i class="fa-solid fa-helmet-safety"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-amber-900 mt-1" id="metricOnSite">0</h3>
+        <p class="text-[11px] text-amber-600 mt-1">ทีมช่างอยู่หน้างาน</p>
+      </div>
+
+      <!-- 5. รอ Testing & Commissioning -->
+      <div id="card-metric-4" onclick="filterByStatusQuick('รอ Testing & Commissioning')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-purple-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-purple-700 uppercase tracking-wider">4. รอ Testing & Com.</p>
+          <span class="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-sm group-hover:bg-purple-600 group-hover:text-white transition">
+            <i class="fa-solid fa-vial-circle-check"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-purple-900 mt-1" id="metricTesting">0</h3>
+        <p class="text-[11px] text-purple-600 mt-1">ทดสอบระบบ</p>
+      </div>
+
+      <!-- 6. ติดปัญหาหน้างาน / รออะไหล่ -->
+      <div id="card-metric-5" onclick="filterByStatusQuick('ติดปัญหาหน้างาน / รออะไหล่')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-rose-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-pts-800 uppercase tracking-wider">5. ติดปัญหา / อะไหล่</p>
+          <span class="w-8 h-8 rounded-xl bg-rose-50 text-pts-800 flex items-center justify-center text-sm group-hover:bg-rose-600 group-hover:text-white transition">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-pts-900 mt-1" id="metricBlocked">0</h3>
+        <p class="text-[11px] text-rose-600 mt-1">ต้องเร่งแก้ไขด่วน</p>
+      </div>
+
+      <!-- 7. ค้างทำรายงาน -->
+      <div id="card-metric-6" onclick="filterByStatusQuick('ค้างทำรายงาน')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-indigo-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-indigo-700 uppercase tracking-wider">6. ค้างทำรายงาน</p>
+          <span class="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm group-hover:bg-indigo-600 group-hover:text-white transition">
+            <i class="fa-solid fa-file-pen"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-indigo-900 mt-1" id="metricReport">0</h3>
+        <p class="text-[11px] text-indigo-600 mt-1">ทำเอกสารส่งมอบ</p>
+      </div>
+
+      <!-- 8. ส่งมอบ / เอกสารเรียบร้อย -->
+      <div id="card-metric-7" onclick="filterByStatusQuick('ส่งมอบ / เอกสารเรียบร้อย')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-emerald-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">7. ส่งมอบเรียบร้อย</p>
+          <span class="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm group-hover:bg-emerald-600 group-hover:text-white transition">
+            <i class="fa-solid fa-file-circle-check"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-emerald-900 mt-1" id="metricDelivered">0</h3>
+        <p class="text-[11px] text-emerald-600 mt-1">ส่งมอบ/แนบเอกสารแล้ว</p>
+      </div>
+
+      <!-- 9. ปิดงาน (Closed) -->
+      <div id="card-metric-8" onclick="filterByStatusQuick('ปิดงาน')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-slate-500 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">8. ปิดงาน (CLOSED)</p>
+          <span class="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center text-sm group-hover:bg-slate-800 group-hover:text-white transition">
+            <i class="fa-solid fa-folder-closed"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-slate-900 mt-1" id="metricClosed">0</h3>
+        <p class="text-[11px] text-slate-500 mt-1 font-medium">เสร็จสมบูรณ์ / ปิดงานแล้ว</p>
+      </div>
+
+      <!-- 10. ครบสัญญา <= 7 วัน -->
+      <div id="card-metric-EXP" onclick="filterByContractQuick('EXPIRING_SOON')" class="cursor-pointer bg-gradient-to-br from-amber-50 to-orange-50/60 rounded-2xl p-3 sm:p-4 shadow-sm border border-amber-300 hover:border-amber-400 hover:shadow-md transition active:scale-95 group">
+        <div class="flex items-center justify-between">
+          <p class="text-[11px] font-bold text-amber-800 uppercase tracking-wider">ครบสัญญา ≤ 7 วัน</p>
+          <span class="w-8 h-8 rounded-xl bg-amber-200 text-amber-900 flex items-center justify-center text-sm group-hover:bg-amber-600 group-hover:text-white transition">
+            <i class="fa-solid fa-clock-rotate-left"></i>
+          </span>
+        </div>
+        <h3 class="text-2xl font-black text-amber-950 mt-1" id="metricExpiringContract">0</h3>
+        <p class="text-[11px] text-amber-800 mt-1 font-semibold">⚠️ ต้องเร่งส่งมอบ</p>
+      </div>
+
+    </div>
+
+    <!-- ACTIVE STATUS FILTER BANNER (แสดงเมื่อเลือกสถานะชัดเจน) -->
+    <div id="activeStatusBanner" class="hidden bg-pts-50/80 border border-pts-200 rounded-2xl p-3 sm:p-3.5 flex items-center justify-between shadow-xs transition">
+      <div class="flex items-center gap-2.5">
+        <span class="w-8 h-8 rounded-xl bg-pts-800 text-white flex items-center justify-center text-sm shadow-xs">
+          <i class="fa-solid fa-layer-group"></i>
+        </span>
+        <div>
+          <span class="text-[11px] text-slate-500 font-medium">กำลังแสดงงานในสถานะ:</span>
+          <h4 class="text-sm font-bold text-pts-900" id="activeStatusBannerTitle">-</h4>
+        </div>
+      </div>
+      <button type="button" onclick="filterByStatusQuick('ACTIVE_ALL')" class="px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 shadow-xs transition flex items-center gap-1.5 cursor-pointer">
+        <i class="fa-solid fa-rotate-left text-slate-400"></i> แสดงงานที่ยังไม่ปิดทั้งหมด
+      </button>
+    </div>
+
+    <!-- FILTER BAR & VIEW TOGGLE (เรียบง่าย สวยงาม ไม่ซ้ำซ้อน) -->
+    <div class="bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      
+      <!-- Filters Group (Search, SubDept, Priority) -->
+      <div class="flex flex-wrap items-center gap-2.5 flex-1">
+        <!-- Search Box -->
+        <div class="relative flex-1 min-w-[200px]">
+          <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+          <input type="text" id="searchInput" oninput="syncSearch(this.value)" placeholder="ค้นหา รหัสงาน, ชื่อไซต์, หัวหน้าช่าง..." class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800/30 focus:border-pts-800 transition">
+        </div>
+
+        <!-- Sub-department Filter Dropdown -->
+        <select id="subDeptFilter" onchange="renderApp()" class="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-pts-800/30 focus:border-pts-800">
+          <option value="ALL">ทุกฝ่ายย่อย (All Sub-Depts)</option>
+          <option value="งานโครงการ">1. งานโครงการ (Project Execution)</option>
+          <option value="PM Fire Pump">2. PM Fire Pump</option>
+          <option value="PM Fire Alarm">3. PM Fire Alarm</option>
+          <option value="งานซ่อมบำรุง">4. งานซ่อมบำรุง (Maintenance)</option>
+        </select>
+
+        <!-- Priority Filter -->
+        <select id="priorityFilter" onchange="renderApp()" class="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-pts-800/30 focus:border-pts-800">
+          <option value="ALL">ทุกความสำคัญ</option>
+          <option value="High">🔴 สูง (High)</option>
+          <option value="Medium">🟡 ปานกลาง (Medium)</option>
+          <option value="Low">🟢 ปกติ (Low)</option>
+        </select>
+
+        <!-- Hidden inputs for compatibility -->
+        <select id="statusFilter" onchange="handleStatusFilterChange()" class="hidden">
+          <option value="ACTIVE_ALL">ACTIVE_ALL</option>
+        </select>
+        <select id="contractFilter" onchange="renderApp()" class="hidden">
+          <option value="ALL">ALL</option>
+        </select>
+      </div>
+
+      <!-- Quick Stats Counter -->
+      <div class="flex items-center gap-2 self-stretch md:self-auto shrink-0 justify-end flex-wrap text-xs">
+        <span class="px-3 py-1.5 rounded-xl bg-pts-50 text-pts-900 font-bold border border-pts-200" title="งานที่ยังไม่ปิด">
+          <i class="fa-solid fa-spinner fa-spin-pulse mr-1 text-pts-700"></i> กำลังทำ: <span id="activeCountBadge">0</span>
+        </span>
+        <span class="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 font-bold border border-slate-200" title="ปิดงานแล้ว">
+          <i class="fa-solid fa-circle-check mr-1 text-emerald-600"></i> ปิดแล้ว: <span id="closedCountBadge">0</span>
+        </span>
+        <span class="px-3 py-1.5 rounded-xl bg-white text-slate-600 font-semibold border border-slate-200" id="tableFilteredCount">
+          แสดง <span id="tableCountNum">0</span> งาน
+        </span>
+      </div>
+
+    </div>
+
+    <!-- PRIMARY TABLE VIEW (ตารางงานวิศวกรรมหลัก) -->
+    <div id="tableView" class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-800 text-slate-200 text-xs font-semibold uppercase tracking-wider border-b border-slate-700">
+              <th class="py-3.5 px-3 sm:px-4">Job ID</th>
+              <th class="py-3.5 px-3 sm:px-4">ชื่อไซต์งาน / ลูกค้า</th>
+              <th class="hidden md:table-cell py-3.5 px-4">ฝ่ายย่อย</th>
+              <th class="py-3.5 px-3 sm:px-4">ไฟล์แนบ</th>
+              <th class="hidden lg:table-cell py-3.5 px-4">วันอนุมัติ PO</th>
+              <th class="hidden sm:table-cell py-3.5 px-4">ครบกำหนดสัญญา</th>
+              <th class="hidden lg:table-cell py-3.5 px-4">วันที่งานเสร็จจริง</th>
+              <th class="hidden md:table-cell py-3.5 px-4">JSA Safety</th>
+              <th class="py-3.5 px-3 sm:px-4">สถานะ (Status)</th>
+              <th class="py-3.5 px-3 sm:px-4 text-center">จัดการ</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody" class="divide-y divide-slate-200 text-sm">
+            <!-- Dynamic Table Rows -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL 1: CREATE NEW TASK MODAL -->
+  <div id="createModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all my-0 sm:my-8 flex flex-col max-h-[92dvh] sm:max-h-[92vh]">
+      
+      <!-- Modal Header -->
+      <div class="bg-gradient-to-r from-slate-900 to-pts-900 text-white p-5 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-pts-800 flex items-center justify-center text-white border border-pts-600">
+            <i class="fa-solid fa-file-circle-plus text-lg"></i>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold">เปิดใบงานใหม่ (Create Engineering Job)</h3>
+            <p class="text-xs text-slate-300">ฝ่ายวิศวกรรม หจก. ปกรณ์ เทคนิคอล ซัพพลาย</p>
+          </div>
+        </div>
+        <button onclick="closeCreateModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="createJobForm" onsubmit="handleCreateJob(event)" class="p-4 sm:p-6 space-y-4 flex-1 overflow-y-auto scroll-body">
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Job ID -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Job ID (รหัสงาน)</label>
+            <input type="text" id="newJobId" class="w-full px-3.5 py-2.5 bg-slate-100 border border-slate-300 rounded-xl font-mono text-sm text-slate-700" readonly>
+          </div>
+
+          <!-- Sub Department -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">ฝ่ายย่อย (Sub-Department) *</label>
+            <select id="newSubDept" required class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-pts-800">
+              <option value="งานโครงการ">1. งานโครงการ (Project Execution)</option>
+              <option value="PM Fire Pump">2. PM Fire Pump Systems</option>
+              <option value="PM Fire Alarm">3. PM Fire Alarm Systems</option>
+              <option value="งานซ่อมบำรุง">4. งานซ่อมบำรุง (Maintenance & Repair)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Project Name / Site -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">ชื่อไซต์งาน / ลูกค้า (Project Site Name) *</label>
+          <input type="text" id="newProjectName" required placeholder="เช่น บริษัท อุตสาหกรรมไทย จำกัด (นิคมบางปู)" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Technician in Charge -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">หัวหน้าช่างผู้รับผิดชอบ *</label>
+            <input type="text" id="newTechnician" required placeholder="เช่น ช่างปกรณ์ / ช่างสมชาย" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+
+          <!-- Site Location -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">สถานที่ / พิกัดหน้างาน</label>
+            <input type="text" id="newSiteLocation" placeholder="เช่น อมตะซิตี้ ชลบุรี อาคาร B" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+        </div>
+
+        <!-- DATES SECTION: PO DATE & CONTRACT EXPIRY DATE -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-3.5 bg-amber-50/60 rounded-2xl border border-amber-200">
+          <div>
+            <label class="block text-xs font-bold text-amber-900 mb-1">
+              <i class="fa-solid fa-file-signature text-amber-700 mr-1"></i> วันอนุมัติ PO (PO Approval Date)
+            </label>
+            <input type="date" id="newPoApprovalDate" class="w-full px-3.5 py-2.5 bg-white border border-amber-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-amber-950 mb-1">
+              <i class="fa-solid fa-calendar-xmark text-pts-800 mr-1"></i> วันครบกำหนดสัญญา (Contract Expiry) *
+            </label>
+            <input type="date" id="newContractExpiryDate" class="w-full px-3.5 py-2.5 bg-white border border-amber-300 rounded-xl text-sm font-semibold text-pts-900 focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+        </div>
+
+        <!-- Task Description -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">รายละเอียดงาน (Task Details)</label>
+          <textarea id="newTaskDetail" rows="2" placeholder="ระบุรายละเอียดงาน ขอบเขตงาน หรือเครื่องจักรที่ต้องดูแล..." class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800"></textarea>
+        </div>
+
+        <!-- MULTI-FORMAT ATTACHMENTS CONTAINER (PHOTOS, DOCS, VIDEOS) -->
+        <div class="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+          <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-paperclip text-pts-800 text-sm"></i> แนบไฟล์ประกอบใบงาน (Attachments)
+          </h4>
+
+          <!-- Section 1: Site Photos (Max 100) -->
+          <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <i class="fa-solid fa-camera text-pts-800"></i> แนบรูปภาพหน้างาน (Site Photos)
+              </label>
+              <span class="text-[11px] font-semibold text-slate-500" id="newPhotoCountText">(0 / 100 รูป)</span>
+            </div>
+            <label class="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer transition">
+              <i class="fa-solid fa-upload mr-1.5"></i> เลือกรูปภาพ / ถ่ายภาพ
+              <input type="file" accept="image/*" multiple onchange="handleFileSelect(event, 'new', 'photo')" class="hidden">
+            </label>
+            <div id="newPhotosPreviewContainer" class="flex flex-wrap gap-2 pt-1 max-h-36 overflow-y-auto"></div>
+          </div>
+
+          <!-- Section 2: Documents (PDF, Word, Excel) -->
+          <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <i class="fa-solid fa-file-pdf text-rose-600"></i> แนบเอกสาร (PDF, Word, Excel)
+              </label>
+              <span class="text-[11px] font-semibold text-slate-500" id="newDocCountText">(0 ไฟล์)</span>
+            </div>
+            <label class="inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold cursor-pointer transition">
+              <i class="fa-solid fa-file-arrow-up mr-1.5"></i> แนบไฟล์ PDF, Word, Excel
+              <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx" multiple onchange="handleFileSelect(event, 'new', 'doc')" class="hidden">
+            </label>
+            <div id="newDocsPreviewContainer" class="flex flex-wrap gap-2 pt-1 max-h-36 overflow-y-auto"></div>
+          </div>
+
+          <!-- Section 3: Video Files (MP4, WEBM, MOV) -->
+          <div class="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <i class="fa-solid fa-video text-purple-600"></i> แนบวิดีโอหน้างาน (Video Files)
+              </label>
+              <span class="text-[11px] font-semibold text-slate-500" id="newVideoCountText">(0 วิดีโอ)</span>
+            </div>
+            <label class="inline-flex items-center px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold cursor-pointer transition">
+              <i class="fa-solid fa-film mr-1.5"></i> เลือกไฟล์วิดีโอ (MP4, MOV)
+              <input type="file" accept="video/*" multiple onchange="handleFileSelect(event, 'new', 'video')" class="hidden">
+            </label>
+            <div id="newVideosPreviewContainer" class="flex flex-wrap gap-2 pt-1 max-h-36 overflow-y-auto"></div>
+          </div>
+
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- Initial Status -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">สถานะแรกเริ่ม</label>
+            <select id="newStatus" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-pts-800">
+              <option value="วางแผน / เตรียมอุปกรณ์">1. วางแผน / เตรียมอุปกรณ์</option>
+              <option value="แจ้งเข้าทำงาน">2. แจ้งเข้าทำงาน</option>
+              <option value="เข้าปฏิบัติงานหน้างาน">3. เข้าปฏิบัติงานหน้างาน</option>
+            </select>
+          </div>
+
+          <!-- Priority -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">ระดับความสำคัญ</label>
+            <select id="newPriority" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-pts-800">
+              <option value="Medium">Medium (ปานกลาง)</option>
+              <option value="High">High (สูง/เร่งด่วน)</option>
+              <option value="Low">Low (ปกติ)</option>
+            </select>
+          </div>
+
+          <!-- Target Date -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">กำหนดเข้างานหน้างาน</label>
+            <input type="date" id="newTargetDate" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+        </div>
+
+        <!-- JSA Safety Toggle -->
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+              <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-amber-900">JSA (Job Safety Analysis) Clearance</p>
+              <p class="text-[11px] text-amber-700">ยืนยันการประเมินความปลอดภัยก่อนเข้าทำงานหน้างาน</p>
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="newJsaCompleted" class="sr-only peer">
+            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
+        </div>
+
+        <!-- Submit Footer Buttons -->
+        <div class="pt-4 border-t border-slate-200 flex items-center justify-end gap-2 sm:gap-3 safe-bottom">
+          <button type="button" onclick="closeCreateModal()" class="px-5 py-3 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-100 transition">
+            ยกเลิก
+          </button>
+          <button type="submit" id="createSubmitBtn" class="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-gradient-to-r from-pts-800 to-pts-700 hover:from-pts-700 hover:to-pts-600 text-white text-sm font-bold shadow-md shadow-pts-900/20 transition active:scale-95">
+            บันทึกเปิดงานใหม่
+          </button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 2: QUICK EDIT & SITE NOTES DETAILS MODAL -->
+  <div id="editModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all my-0 sm:my-8 flex flex-col max-h-[92dvh] sm:max-h-[92vh]">
+      
+      <!-- Modal Header -->
+      <div class="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
+        <div class="flex items-center space-x-3">
+          <span id="editJobIdBadge" class="px-3 py-1 rounded-xl bg-pts-800 text-white font-mono text-sm font-bold border border-pts-600">
+            PTS-ENG-000
+          </span>
+          <div>
+            <h3 id="editProjectTitle" class="text-lg font-bold text-white">รายละเอียดใบงาน</h3>
+            <p class="text-xs text-slate-400 truncate" id="editSubDeptSubtitle">งานโครงการ</p>
+          </div>
+        </div>
+        <button onclick="closeEditModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Modal Content Body -->
+      <div class="p-4 sm:p-6 space-y-5 sm:space-y-6 flex-1 overflow-y-auto scroll-body">
+
+        <!-- STATUS LIFECYCLE STEPPER & DROPDOWN -->
+        <div class="space-y-2.5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <i class="fa-solid fa-arrows-spin text-pts-800 mr-1"></i> อัปเดตสถานะงาน (Task Lifecycle - 8 สถานะ)
+            </label>
+            <select id="editStatusSelect" onchange="changeEditingStatus(this.value)" class="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-pts-800">
+              <option value="วางแผน / เตรียมอุปกรณ์">1. วางแผน / เตรียมอุปกรณ์</option>
+              <option value="แจ้งเข้าทำงาน">2. แจ้งเข้าทำงาน</option>
+              <option value="เข้าปฏิบัติงานหน้างาน">3. เข้าปฏิบัติงานหน้างาน</option>
+              <option value="รอ Testing & Commissioning">4. รอ Testing & Commissioning</option>
+              <option value="ติดปัญหาหน้างาน / รออะไหล่">5. ติดปัญหาหน้างาน / รออะไหล่</option>
+              <option value="ค้างทำรายงาน">6. ค้างทำรายงาน</option>
+              <option value="ส่งมอบ / เอกสารเรียบร้อย">7. ส่งมอบ / เอกสารเรียบร้อย</option>
+              <option value="ปิดงาน">8. ปิดงาน</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5" id="statusStepperContainer">
+            <!-- Dynamic Status Buttons 1..8 -->
+          </div>
+        </div>
+
+        <!-- CONTRACT TIMELINE SUMMARY BANNER -->
+        <div id="editContractTimelineBanner" class="p-3.5 rounded-2xl border flex items-center justify-between">
+          <!-- Dynamic Banner Content -->
+        </div>
+
+        <!-- FORM FIELDS EDIT -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+          
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 mb-1">ชื่อไซต์งาน / ลูกค้า *</label>
+            <input type="text" id="editProjectName" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-semibold text-slate-800">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">ฝ่ายย่อย *</label>
+            <select id="editSubDept" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium">
+              <option value="งานโครงการ">งานโครงการ (Project Execution)</option>
+              <option value="PM Fire Pump">PM Fire Pump</option>
+              <option value="PM Fire Alarm">PM Fire Alarm</option>
+              <option value="งานซ่อมบำรุง">งานซ่อมบำรุง (Maintenance)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">หัวหน้าช่างผู้รับผิดชอบ</label>
+            <input type="text" id="editTechnician" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm text-slate-800">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">เบอร์ติดต่อหน้างาน</label>
+            <input type="text" id="editSiteContactPhone" placeholder="เช่น 081-234-5678" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">ความสำคัญ (Priority)</label>
+            <select id="editPriority" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium">
+              <option value="High">🔴 High (สูง/เร่งด่วน)</option>
+              <option value="Medium">🟡 Medium (ปานกลาง)</option>
+              <option value="Low">🟢 Low (ปกติ)</option>
+            </select>
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="block text-xs font-bold text-slate-700 mb-1">สถานที่ / พิกัดหน้างาน</label>
+            <input type="text" id="editSiteLocation" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">ลิงก์ Google Maps</label>
+            <input type="text" id="editSiteMapUrl" placeholder="https://maps.google.com/..." class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm">
+          </div>
+
+          <!-- DATES FIELDS: PO, EXPIRY, COMPLETION -->
+          <div>
+            <label class="block text-xs font-bold text-amber-900 mb-1">วันอนุมัติ PO</label>
+            <input type="date" id="editPoApprovalDate" class="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-sm font-medium">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-pts-900 mb-1">วันครบกำหนดสัญญา *</label>
+            <input type="date" id="editContractExpiryDate" class="w-full px-3 py-2 bg-white border border-pts-400 rounded-xl text-sm font-bold text-pts-900">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-emerald-900 mb-1">วันที่งานเสร็จจริง (Completion Date)</label>
+            <input type="date" id="editCompletionDate" class="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl text-sm font-semibold text-emerald-900">
+          </div>
+
+          <div class="md:col-span-3">
+            <label class="block text-xs font-bold text-slate-700 mb-1">รายละเอียดงาน</label>
+            <textarea id="editTaskDetail" rows="2" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm"></textarea>
+          </div>
+
+        </div>
+
+        <!-- MULTI-FORMAT ATTACHMENTS EDIT GALLERY (PHOTOS, DOCS, VIDEOS, DELIVERY) -->
+        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+          <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-paperclip text-pts-800 text-sm"></i> ไฟล์แนบในระบบ (Attachments Gallery)
+          </h4>
+
+          <!-- Section 1: Site Photos Gallery -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <i class="fa-solid fa-camera text-pts-800"></i> รูปภาพหน้างาน (Site Photos)
+                <span class="text-[11px] font-bold text-pts-800 bg-pts-50 px-2 py-0.5 rounded-md border border-pts-200" id="editPhotoCountBadge">(0 / 100 รูป)</span>
+              </span>
+              <label class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold cursor-pointer transition">
+                <i class="fa-solid fa-plus mr-1"></i> เพิ่มรูปภาพ
+                <input type="file" accept="image/*" multiple onchange="handleFileSelect(event, 'edit', 'photo')" class="hidden">
+              </label>
+            </div>
+            <div id="editPhotosGalleryContainer" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
+          </div>
+
+          <!-- Section 2: Document Files Gallery -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <i class="fa-solid fa-file-pdf text-rose-600"></i> เอกสาร (PDF, Word, Excel)
+                <span class="text-[11px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200" id="editDocCountBadge">(0 ไฟล์)</span>
+              </span>
+              <label class="px-2.5 py-1 rounded-lg bg-blue-700 hover:bg-blue-600 text-white text-[11px] font-bold cursor-pointer transition">
+                <i class="fa-solid fa-plus mr-1"></i> แนบเอกสาร
+                <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx" multiple onchange="handleFileSelect(event, 'edit', 'doc')" class="hidden">
+              </label>
+            </div>
+            <div id="editDocsGalleryContainer" class="flex flex-wrap gap-2 min-h-[45px] max-h-44 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
+          </div>
+
+          <!-- Section 3: Video Files Gallery -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                <i class="fa-solid fa-video text-purple-600"></i> วิดีโอหน้างาน (Video Files)
+                <span class="text-[11px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200" id="editVideoCountBadge">(0 วิดีโอ)</span>
+              </span>
+              <label class="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-[11px] font-bold cursor-pointer transition">
+                <i class="fa-solid fa-plus mr-1"></i> แนบวิดีโอ
+                <input type="file" accept="video/*" multiple onchange="handleFileSelect(event, 'edit', 'video')" class="hidden">
+              </label>
+            </div>
+            <div id="editVideosGalleryContainer" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
+          </div>
+
+          <!-- Section 4: Delivery Documents Gallery -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                <i class="fa-solid fa-file-signature text-emerald-600"></i> ใบส่งมอบงาน / As-Built (Delivery Docs)
+                <span class="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200" id="editDeliveryCountBadge">(0 ไฟล์)</span>
+              </span>
+              <label class="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold cursor-pointer transition">
+                <i class="fa-solid fa-plus mr-1"></i> แนบใบส่งมอบ
+                <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple onchange="handleFileSelect(event, 'edit', 'delivery')" class="hidden">
+              </label>
+            </div>
+            <div id="editDeliveryGalleryContainer" class="flex flex-wrap gap-2 min-h-[45px] max-h-44 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
+          </div>
+
+        </div>
+
+        <!-- JSA SAFETY CLEARANCE BANNER & TOGGLE -->
+        <div class="p-4 rounded-2xl border flex items-center justify-between" id="editJsaBanner">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg" id="editJsaIconBox">
+              <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <div>
+              <h4 class="text-sm font-bold" id="editJsaTitle">JSA Safety Clearance Status</h4>
+              <p class="hidden sm:block text-xs text-slate-500" id="editJsaSubtitle">อนุมัติเอกสารความปลอดภัยก่อนเข้าปฏิบัติงาน</p>
+            </div>
+          </div>
+          <button type="button" onclick="toggleEditJsa()" id="editJsaToggleBtn" class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2">
+            <!-- Dynamic button state -->
+          </button>
+        </div>
+
+        <!-- APPEND SITE NOTES & AUDIT TRAIL LOG -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">บันทึกหน้างาน / หมายเหตุปัญหา (Site Logs & Notes)</h4>
+            <span class="text-xs text-slate-400" id="editUpdatedAt">อัปเดตล่าสุด: -</span>
+          </div>
+
+          <div class="bg-slate-900 text-slate-200 p-4 rounded-2xl font-mono text-xs max-h-40 overflow-y-auto whitespace-pre-wrap border border-slate-800" id="editNotesDisplay">
+            <!-- Display formatted log entries -->
+          </div>
+
+          <!-- Add Note Input -->
+          <div class="flex items-center gap-2">
+            <input type="text" id="newAppendNote" placeholder="พิมพ์บันทึกข้อความหรือรายงานปัญหาหน้างานเพิ่มเติม..." class="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+            <button type="button" onclick="appendSiteNote()" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shrink-0">
+              <i class="fa-solid fa-plus text-xs"></i>
+              <span>เพิ่มบันทึก</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex items-center justify-between gap-2 safe-bottom shrink-0">
+        <button type="button" onclick="deleteCurrentTask()" class="px-3 sm:px-4 py-2.5 rounded-xl text-rose-700 hover:bg-rose-100 text-xs font-bold transition flex items-center gap-1.5 shrink-0 touch-target">
+          <i class="fa-solid fa-trash"></i>
+          <span class="hidden sm:inline">ลบใบงานนี้</span>
+        </button>
+
+        <div class="flex items-center gap-2 sm:gap-3 flex-1 sm:flex-none justify-end">
+          <button type="button" onclick="closeEditModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition touch-target">
+            ปิด
+          </button>
+          <button type="button" id="editSaveBtn" onclick="saveTaskEdits()" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md shadow-pts-900/20 transition active:scale-95">
+            บันทึกการปรับปรุง
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MOBILE FLOATING ACTION BUTTON (the header keeps only icons on phones) -->
+  <button onclick="openCreateModal()" aria-label="เปิดงานใหม่"
+          class="sm:hidden fixed bottom-5 right-4 z-40 h-14 pl-4 pr-5 rounded-full bg-gradient-to-r from-pts-800 to-pts-700 text-white text-sm font-bold shadow-2xl shadow-pts-900/40 border border-pts-600 flex items-center gap-2 active:scale-95 transition">
+    <i class="fa-solid fa-plus"></i>
+    <span>เปิดงานใหม่</span>
+  </button>
+
+  <!-- REALTIME SYNC TOAST -->
+  <div id="syncToast" class="hidden opacity-0 transition-opacity duration-300 fixed bottom-24 sm:bottom-5 left-1/2 -translate-x-1/2 z-[60] max-w-[92vw] px-4 py-2.5 rounded-2xl bg-slate-900 text-white text-xs font-bold shadow-2xl border border-slate-700 flex items-center gap-2">
+    <i class="fa-solid fa-arrows-rotate text-emerald-400"></i>
+    <span id="syncToastText">ข้อมูลถูกอัปเดต</span>
+  </div>
+
+  <!-- MODAL 2.5: READ-ONLY DETAIL & MEDIA PREVIEW MODAL (NO EDIT MODE REQUIRED) -->
+  <div id="detailModal" class="fixed inset-0 z-40 hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all my-0 sm:my-8 flex flex-col max-h-[92dvh] sm:max-h-[92vh]">
+
+      <!-- Modal Header -->
+      <div class="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
+        <div class="flex items-center space-x-3 min-w-0">
+          <span id="detailJobIdBadge" class="px-3 py-1 rounded-xl bg-pts-800 text-white font-mono text-sm font-bold border border-pts-600 shrink-0">
+            PTS-ENG-000
+          </span>
+          <div class="min-w-0">
+            <h3 id="detailProjectTitle" class="text-lg font-bold text-white truncate">รายละเอียดใบงาน</h3>
+            <p class="text-xs text-slate-400 truncate" id="detailSubtitle">งานโครงการ</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2 shrink-0">
+          <button onclick="editFromDetail()" class="hidden sm:flex px-3.5 py-2 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold transition items-center gap-1.5 shadow-md shadow-pts-900/30">
+            <i class="fa-solid fa-pen-to-square"></i>
+            <span>แก้ไขใบงาน</span>
+          </button>
+          <button onclick="closeDetailModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Content Body -->
+      <div class="p-4 sm:p-6 space-y-5 flex-1 overflow-y-auto scroll-body">
+
+        <!-- Status + contract summary -->
+        <div id="detailSummary" class="space-y-3"></div>
+
+        <!-- Info grid -->
+        <div id="detailInfoGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+
+        <!-- SITE PHOTOS GALLERY (INSTANT PREVIEW) -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-camera text-pts-800"></i> รูปภาพหน้างาน
+            <span class="text-[11px] font-bold text-pts-800 bg-pts-50 px-2 py-0.5 rounded-md border border-pts-200" id="detailPhotoCount">(0 รูป)</span>
+          </h4>
+          <div id="detailPhotosGallery" class="grid grid-cols-3 sm:grid-cols-5 gap-2.5 p-2 bg-slate-50 rounded-2xl border border-slate-200 min-h-[70px]"></div>
+        </div>
+
+        <!-- DOCUMENTS -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-file-pdf text-rose-600"></i> เอกสารแนบ
+            <span class="text-[11px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200" id="detailDocCount">(0 ไฟล์)</span>
+          </h4>
+          <div id="detailDocsList" class="flex flex-wrap gap-2 p-2 bg-slate-50 rounded-2xl border border-slate-200 min-h-[50px]"></div>
+        </div>
+
+        <!-- VIDEOS -->
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-video text-purple-600"></i> วิดีโอหน้างาน
+            <span class="text-[11px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200" id="detailVideoCount">(0 คลิป)</span>
+          </h4>
+          <div id="detailVideosList" class="flex flex-wrap gap-2.5 p-2 bg-slate-50 rounded-2xl border border-slate-200 min-h-[50px]"></div>
+        </div>
+
+        <!-- NOTES LOG -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">บันทึกหน้างาน / หมายเหตุปัญหา</h4>
+            <span class="text-xs text-slate-400" id="detailUpdatedAt">อัปเดตล่าสุด: -</span>
+          </div>
+          <div class="bg-slate-900 text-slate-200 p-4 rounded-2xl font-mono text-xs max-h-40 overflow-y-auto whitespace-pre-wrap border border-slate-800" id="detailNotesDisplay"></div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex items-center justify-end gap-2 sm:gap-3 safe-bottom shrink-0">
+        <button type="button" onclick="closeDetailModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition touch-target">
+          ปิด
+        </button>
+        <button type="button" onclick="editFromDetail()" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md shadow-pts-900/20 transition active:scale-95 flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-pen-to-square"></i>
+          <span>แก้ไขใบงาน</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL 3: MEDIA LIGHTBOX & PLAYER MODAL (PHOTOS & VIDEO) -->
+  <div id="lightboxModal" class="fixed inset-0 z-50 hidden bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4" onclick="closeLightboxModal()">
+    <div class="relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center" onclick="event.stopPropagation()">
+      <button onclick="closeLightboxModal()" class="absolute -top-12 right-0 text-white hover:text-slate-300 text-2xl font-bold p-2">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+
+      <!-- Gallery navigation -->
+      <button id="lightboxPrevBtn" onclick="stepLightbox(-1)" class="hidden absolute left-0 -ml-4 sm:-ml-14 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white flex items-center justify-center transition z-10">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+      <button id="lightboxNextBtn" onclick="stepLightbox(1)" class="hidden absolute right-0 -mr-4 sm:-mr-14 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-slate-800/80 hover:bg-slate-700 text-white flex items-center justify-center transition z-10">
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
+
+      <!-- Photo Container -->
+      <img id="lightboxImg" src="" alt="Photo Preview" class="hidden max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain border border-slate-700">
+
+      <!-- Video Container (local files recorded on site) -->
+      <video id="lightboxVideo" controls playsinline class="hidden max-w-full max-h-[80vh] rounded-2xl shadow-2xl border border-slate-700"></video>
+
+      <!-- Google Drive inline player (videos & PDF stored on Drive) -->
+      <iframe id="lightboxFrame" allow="autoplay; fullscreen" allowfullscreen
+              class="hidden w-[85vw] max-w-4xl h-[75vh] rounded-2xl shadow-2xl border border-slate-700 bg-slate-900"></iframe>
+
+      <p class="text-slate-300 text-xs mt-3 font-mono" id="lightboxCaption">Media Preview</p>
+
+      <a id="lightboxOpenLink" href="#" target="_blank" rel="noopener" class="hidden text-[11px] text-slate-400 hover:text-white mt-1.5 underline">
+        <i class="fa-solid fa-up-right-from-square mr-1"></i> เปิดไฟล์ต้นฉบับใน Google Drive
+      </a>
+    </div>
+  </div>
+
+  <!-- MODAL 4: API & GOOGLE SHEETS SETTINGS MODAL -->
+  <div id="configModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all flex flex-col max-h-[92dvh]">
+      
+      <div class="bg-slate-900 text-white p-5 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-amber-400 border border-slate-700">
+            <i class="fa-solid fa-database text-lg"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold">เชื่อมต่อฐานข้อมูล (Database Connection)</h3>
+            <p class="hidden sm:block text-xs text-slate-400">Google Sheets API Bridge & Local Sandbox</p>
+          </div>
+        </div>
+        <button onclick="closeConfigModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="p-4 sm:p-6 space-y-4 flex-1 overflow-y-auto scroll-body">
+
+        <!-- Mode Switcher Radio -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-2">เลือกโหมดการทำงาน (Database Mode)</label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+            <label class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-start space-x-3">
+              <input type="radio" name="dbMode" value="mock" id="modeMock" class="mt-0.5 text-pts-800 focus:ring-pts-800">
+              <div>
+                <span class="block text-xs font-bold text-slate-800">Demo Sandbox Mode</span>
+                <span class="block text-[11px] text-slate-500">ทดสอบในระบบ (ใช้ LocalStorage)</span>
+              </div>
+            </label>
+            <label class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-start space-x-3">
+              <input type="radio" name="dbMode" value="live" id="modeLive" class="mt-0.5 text-pts-800 focus:ring-pts-800">
+              <div>
+                <span class="block text-xs font-bold text-slate-800">Google Sheets Live</span>
+                <span class="block text-[11px] text-slate-500">ต่อตรง Apps Script Web App</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Google Apps Script URL Input -->
+        <div id="liveUrlContainer" class="space-y-1">
+          <label class="block text-xs font-bold text-slate-700">Google Apps Script Web App URL</label>
+          <input type="url" id="apiUrlInput" oninput="syncConfigOpenLink()" placeholder="https://script.google.com/macros/s/AKfycb.../exec" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-pts-800">
+          <div class="flex flex-wrap items-center gap-2 pt-1.5">
+            <button type="button" onclick="testConnection()" id="configTestBtn" class="px-3.5 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-800 text-white text-xs font-bold transition touch-target">
+              <i class="fa-solid fa-plug-circle-bolt mr-1"></i> ทดสอบการเชื่อมต่อ
+            </button>
+            <button type="button" onclick="useBuiltInApiUrl()" class="px-3.5 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition touch-target">
+              <i class="fa-solid fa-rotate-left mr-1"></i> ใช้ลิงก์ที่มากับไฟล์
+            </button>
+            <a id="configOpenLink" href="#" target="_blank" rel="noopener" class="px-3.5 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition">
+              <i class="fa-solid fa-up-right-from-square mr-1"></i> เปิดลิงก์ในแท็บใหม่
+            </a>
+          </div>
+          <p class="text-[11px] text-slate-500 pt-1">
+            <i class="fa-solid fa-circle-info text-cyan-600 mr-1"></i>
+            ถ้ากดทดสอบแล้วไม่ผ่าน ให้กด "เปิดลิงก์ในแท็บใหม่" เพื่อดูว่า Google ตอบอะไรกลับมา
+          </p>
+        </div>
+
+        <!-- Test Output Message -->
+        <div id="configTestMsg" class="hidden p-3 rounded-xl text-xs font-medium whitespace-pre-line"></div>
+
+      </div>
+
+      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 safe-bottom shrink-0">
+        <button type="button" onclick="loadSampleDataPrompt()" class="py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition">
+          <i class="fa-solid fa-arrows-rotate mr-1"></i> โหลดข้อมูลตัวอย่างเริ่มต้น
+        </button>
+
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="closeConfigModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition touch-target">
+            ปิด
+          </button>
+          <button type="button" onclick="saveConfigSettings()" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md shadow-pts-900/20 transition">
+            บันทึกการตั้งค่า
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MOBILE FLOATING ACTION BUTTON (ปุ่มลอยเปิดงานใหม่สำหรับมือถือ) -->
+  <button onclick="openCreateModal()" aria-label="เปิดงานใหม่" class="sm:hidden fixed bottom-6 right-5 z-40 w-14 h-14 rounded-2xl bg-gradient-to-tr from-pts-900 to-pts-700 text-white shadow-xl shadow-pts-900/40 flex items-center justify-center text-xl border border-pts-600 active:scale-90 transition duration-150 cursor-pointer touch-target">
+    <i class="fa-solid fa-plus"></i>
+  </button>
+
+  <!-- JAVASCRIPT APPLICATION LOGIC -->
+  <script src="script.js"></script>
+</body>
+</html>
