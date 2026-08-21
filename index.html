@@ -177,9 +177,9 @@
             <i class="fa-solid fa-arrows-rotate text-slate-400" id="refreshIcon"></i>
           </button>
 
-          <!-- Add Job Task Button (icon only on phones, FAB provides the labelled action) -->
-          <button onclick="openCreateModal()" class="hidden sm:flex px-4 py-2.5 rounded-2xl bg-gradient-to-r from-pts-800 to-pts-700 hover:from-pts-700 hover:to-pts-600 text-white text-sm font-semibold shadow-lg shadow-pts-900/30 transition duration-200 items-center gap-2 border border-pts-600 active:scale-95">
-            <i class="fa-solid fa-plus text-sm"></i>
+          <!-- Add Job Task Button (แสดงที่ Header ทั้งบนมือถือและคอมพิวเตอร์อย่างสวยงามและเป็นระเบียบ) -->
+          <button onclick="openCreateModal()" class="flex px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-gradient-to-r from-pts-800 to-pts-700 hover:from-pts-700 hover:to-pts-600 text-white text-xs sm:text-sm font-bold shadow-md shadow-pts-900/30 transition duration-200 items-center gap-1.5 sm:gap-2 border border-pts-600 active:scale-95 shrink-0">
+            <i class="fa-solid fa-plus text-xs sm:text-sm"></i>
             <span>เปิดงานใหม่</span>
           </button>
         </div>
@@ -1019,12 +1019,7 @@
     </div>
   </div>
 
-  <!-- MOBILE FLOATING ACTION BUTTON (ปุ่มลอยเปิดงานใหม่สำหรับมือถือ) -->
-  <button onclick="openCreateModal()" aria-label="เปิดงานใหม่" class="sm:hidden fixed bottom-6 right-5 z-40 w-14 h-14 rounded-2xl bg-gradient-to-tr from-pts-900 to-pts-700 text-white shadow-xl shadow-pts-900/40 flex items-center justify-center text-xl border border-pts-600 active:scale-90 transition duration-150 cursor-pointer touch-target">
-    <i class="fa-solid fa-plus"></i>
-  </button>
-
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=2.5"></script>
+  <script src="script.js?v=2.6"></script>
 </body>
 </html>
