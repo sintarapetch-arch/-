@@ -360,6 +360,18 @@
           <option value="Low">🟢 ปกติ (Low)</option>
         </select>
 
+        <!-- Sort By Filter Dropdown -->
+        <select id="sortByFilter" onchange="renderApp()" class="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-pts-800/30 focus:border-pts-800">
+          <option value="ID_DESC">🕒 รหัสงาน (ใหม่ล่าสุด ➔ เก่า)</option>
+          <option value="ID_ASC">🕒 รหัสงาน (เก่า ➔ ใหม่)</option>
+          <option value="EXPIRY_ASC">📅 วันครบสัญญา (ใกล้ครบก่อน ⚠️)</option>
+          <option value="EXPIRY_DESC">📅 วันครบสัญญา (ไกล ➔ ใกล้)</option>
+          <option value="PO_DESC">✍️ วันอนุมัติ PO (ล่าสุด ➔ เก่า)</option>
+          <option value="NAME_ASC">🔤 ชื่อไซต์งาน (ก-ฮ / A-Z)</option>
+          <option value="NAME_DESC">🔤 ชื่อไซต์งาน (ฮ-ก / Z-A)</option>
+          <option value="PRIORITY_DESC">🚨 ความสำคัญ (สูง ➔ ปกติ)</option>
+        </select>
+
         <!-- Hidden inputs for compatibility -->
         <select id="statusFilter" onchange="handleStatusFilterChange()" class="hidden">
           <option value="ACTIVE_ALL">ACTIVE_ALL</option>
@@ -1013,6 +1025,6 @@
   </button>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=2.3"></script>
+  <script src="script.js?v=2.4"></script>
 </body>
 </html>

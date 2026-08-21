@@ -1106,7 +1106,7 @@ const MAX_PHOTOS_PER_TASK = 100;
       const priority = document.getElementById('priorityFilter') ? document.getElementById('priorityFilter').value : 'ALL';
       const statusFilterVal = state.currentActiveStatus || 'ACTIVE_ALL';
 
-      return (state.tasks || []).filter(t => {
+      const list = (state.tasks || []).filter(t => {
         const isClosed = isClosedStatus(t.Status);
         const norm = normalizeStatus(t.Status);
 
@@ -1141,6 +1141,64 @@ const MAX_PHOTOS_PER_TASK = 100;
 
         return matchSearch && matchSubDept && matchPriority && matchContract;
       });
+
+      const sortBy = document.getElementById('sortByFilter') ? document.getElementById('sortByFilter').value : 'ID_DESC';
+
+      // SORTING LOGIC
+      list.sort((a, b) => {
+        switch (sortBy) {
+          case 'ID_ASC': {
+            const numA = parseInt((/(\d+)\s*$/.exec(String(a.Job_ID || '')) || [0, 0])[1], 10);
+            const numB = parseInt((/(\d+)\s*$/.exec(String(b.Job_ID || '')) || [0, 0])[1], 10);
+            return numA - numB;
+          }
+          case 'ID_DESC': {
+            const numA = parseInt((/(\d+)\s*$/.exec(String(a.Job_ID || '')) || [0, 0])[1], 10);
+            const numB = parseInt((/(\d+)\s*$/.exec(String(b.Job_ID || '')) || [0, 0])[1], 10);
+            return numB - numA;
+          }
+          case 'EXPIRY_ASC': {
+            const dateA = parseDateOnly(a.Contract_Expiry_Date);
+            const dateB = parseDateOnly(b.Contract_Expiry_Date);
+            if (!dateA && !dateB) return 0;
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+            return dateA - dateB;
+          }
+          case 'EXPIRY_DESC': {
+            const dateA = parseDateOnly(a.Contract_Expiry_Date);
+            const dateB = parseDateOnly(b.Contract_Expiry_Date);
+            if (!dateA && !dateB) return 0;
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+            return dateB - dateA;
+          }
+          case 'PO_DESC': {
+            const dateA = parseDateOnly(a.PO_Approval_Date);
+            const dateB = parseDateOnly(b.PO_Approval_Date);
+            if (!dateA && !dateB) return 0;
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+            return dateB - dateA;
+          }
+          case 'NAME_ASC': {
+            return String(a.Project_Name || '').localeCompare(String(b.Project_Name || ''), 'th');
+          }
+          case 'NAME_DESC': {
+            return String(b.Project_Name || '').localeCompare(String(a.Project_Name || ''), 'th');
+          }
+          case 'PRIORITY_DESC': {
+            const prioWeight = { 'High': 3, 'Medium': 2, 'Low': 1 };
+            const wA = prioWeight[a.Priority] || 0;
+            const wB = prioWeight[b.Priority] || 0;
+            return wB - wA;
+          }
+          default:
+            return 0;
+        }
+      });
+
+      return list;
     }
 
     function handleStatusFilterChange() {
