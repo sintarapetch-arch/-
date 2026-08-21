@@ -1,6 +1,6 @@
 const MAX_PHOTOS_PER_TASK = 100;
-    // Increased attachment ceiling to 30 MB to support high quality video recordings and large PDFs
-    const MAX_ATTACHMENT_MB = 30;
+    // Increased attachment ceiling to 35 MB (maximum safe single payload for Google Apps Script)
+    const MAX_ATTACHMENT_MB = 35;
 
     // Upload time scales directly with these two numbers. 900px keeps nameplates
     // and gauges readable in the lightbox while staying near 60-90 KB per photo;
@@ -1653,10 +1653,15 @@ const MAX_PHOTOS_PER_TASK = 100;
       const tooBig = files.filter(f => f.size > MAX_ATTACHMENT_MB * 1024 * 1024);
       const usable = files.filter(f => f.size <= MAX_ATTACHMENT_MB * 1024 * 1024);
       if (tooBig.length > 0) {
-        alert(`ไฟล์ต่อไปนี้มีขนาดเกิน ${MAX_ATTACHMENT_MB} MB:\n\n` +
-              tooBig.map(f => `• ${f.name} (${formatBytes(f.size)})`).join('\n') +
-              `\n\n📌 ระบบรองรับการอัปโหลดไฟล์วิดีโอและเอกสารผ่านแอปได้สูงสุดถึง ${MAX_ATTACHMENT_MB} MB ต่อไฟล์\n` +
-              `สำหรับคลิปวิดีโอที่มีความยาวมาก (เช่น 50MB - 100MB+): แนะนำอัปโหลดเข้า Google Drive โดยตรงแล้วนำลิงก์มาวางในช่อง "หมายเหตุ" ได้ครับ`);
+        const fileNames = tooBig.map(f => `• ${f.name} (${formatBytes(f.size)})`).join('\n');
+        if (fileCategory === 'video') {
+          const askDrive = confirm(`ไฟล์วิดีโอต่อไปนี้มีขนาดเกินขีดจำกัดการส่งตรง (${MAX_ATTACHMENT_MB} MB):\n\n${fileNames}\n\n💡 แนะนำ: สำหรับคลิปขนาดใหญ่ (50MB - 1GB+) ให้อัปโหลดเข้า Google Drive แล้วนำลิงก์มาวางในระบบเพื่อเปิดดูได้ไม่จำกัดขนาด\n\nต้องการวางลิงก์ Google Drive ของไฟล์นี้ตอนนี้เลยหรือไม่?`);
+          if (askDrive) {
+            promptAddDriveVideo(mode);
+          }
+        } else {
+          alert(`ไฟล์ต่อไปนี้มีขนาดเกิน ${MAX_ATTACHMENT_MB} MB:\n\n${fileNames}\n\n📌 ระบบรองรับการอัปโหลดไฟล์ผ่านแอปได้สูงสุดถึง ${MAX_ATTACHMENT_MB} MB ต่อไฟล์\nสำหรับไฟล์ขนาดใหญ่กว่านี้ แนะนำอัปโหลดขึ้น Google Drive แล้วนำลิงก์มาวางในช่อง "รายละเอียดงาน / หมายเหตุ" ได้ครับ`);
+        }
       }
       if (usable.length === 0) return;
 
