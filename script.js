@@ -1110,8 +1110,12 @@ const MAX_PHOTOS_PER_TASK = 100;
         const isClosed = isClosedStatus(t.Status);
         const norm = normalizeStatus(t.Status);
 
-        // Separate closed vs active jobs:
-        if (statusFilterVal === 'ACTIVE_ALL' || statusFilterVal === 'ALL') {
+        // Separate closed vs active jobs / Contract Expiry filter:
+        if (statusFilterVal === 'CONTRACT_EXP') {
+          if (isClosed) return false;
+          const days = getDaysUntilExpiry(t.Contract_Expiry_Date);
+          if (days === null || days > 7) return false;
+        } else if (statusFilterVal === 'ACTIVE_ALL' || statusFilterVal === 'ALL') {
           if (isClosed) return false; // Exclude closed tasks to show only active/unfinished tasks
         } else if (statusFilterVal === 'ปิดงาน') {
           if (!isClosed) return false; // Show only closed tasks
