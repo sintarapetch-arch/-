@@ -330,7 +330,7 @@ const MAX_PHOTOS_PER_TASK = 100;
     const ACTIVE_STATUSES = [
       "วางแผน / เตรียมอุปกรณ์",
       "ส่งหนังสือเข้างานแล้ว",
-      "ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน",
+      "ระหว่างปฏิบัติงาน",
       "รอ Testing & Commissioning",
       "ติดปัญหาหน้างาน / รออะไหล่",
       "ค้างทำรายงาน",
@@ -340,7 +340,7 @@ const MAX_PHOTOS_PER_TASK = 100;
     const ALL_STATUSES = [
       "วางแผน / เตรียมอุปกรณ์",
       "ส่งหนังสือเข้างานแล้ว",
-      "ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน",
+      "ระหว่างปฏิบัติงาน",
       "รอ Testing & Commissioning",
       "ติดปัญหาหน้างาน / รออะไหล่",
       "ค้างทำรายงาน",
@@ -380,9 +380,9 @@ const MAX_PHOTOS_PER_TASK = 100;
         return 'ค้างทำรายงาน';
       }
 
-      // 3. ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน
-      if (s === 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน' || s.includes('ติดต่อประสานงาน') || s.includes('ระหว่างปฏิบัติงาน') || s === 'เข้าปฏิบัติงานหน้างาน' || s.includes('ปฏิบัติงาน') || s.includes('หน้างาน') || s.includes('ทีมช่างอยู่หน้างาน')) {
-        return 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน';
+      // 3. ระหว่างปฏิบัติงาน
+      if (s === 'ระหว่างปฏิบัติงาน' || s.includes('ระหว่างปฏิบัติงาน') || s.includes('ติดต่อประสานงาน') || s === 'เข้าปฏิบัติงานหน้างาน' || s.includes('ปฏิบัติงาน') || s.includes('หน้างาน') || s.includes('ทีมช่างอยู่หน้างาน')) {
+        return 'ระหว่างปฏิบัติงาน';
       }
 
       // 2. ส่งหนังสือเข้างานแล้ว
@@ -1227,7 +1227,7 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       const planCount = all.filter(t => normalizeStatus(t.Status) === 'วางแผน / เตรียมอุปกรณ์').length;
       const clearedCount = all.filter(t => normalizeStatus(t.Status) === 'ส่งหนังสือเข้างานแล้ว').length;
-      const onSiteCount = all.filter(t => normalizeStatus(t.Status) === 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน').length;
+      const onSiteCount = all.filter(t => normalizeStatus(t.Status) === 'ระหว่างปฏิบัติงาน').length;
       const testingCount = all.filter(t => normalizeStatus(t.Status) === 'รอ Testing & Commissioning').length;
       const blockedCount = all.filter(t => normalizeStatus(t.Status) === 'ติดปัญหาหน้างาน / รออะไหล่').length;
       const reportCount = all.filter(t => normalizeStatus(t.Status) === 'ค้างทำรายงาน').length;
@@ -1291,7 +1291,7 @@ const MAX_PHOTOS_PER_TASK = 100;
         { id: 'card-metric-ALL', key: 'ACTIVE_ALL' },
         { id: 'card-metric-1', key: 'วางแผน / เตรียมอุปกรณ์' },
         { id: 'card-metric-2', key: 'ส่งหนังสือเข้างานแล้ว' },
-        { id: 'card-metric-3', key: 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน' },
+        { id: 'card-metric-3', key: 'ระหว่างปฏิบัติงาน' },
         { id: 'card-metric-4', key: 'รอ Testing & Commissioning' },
         { id: 'card-metric-5', key: 'ติดปัญหาหน้างาน / รออะไหล่' },
         { id: 'card-metric-6', key: 'ค้างทำรายงาน' },
@@ -1722,57 +1722,47 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     // RENDER PHOTOS PREVIEW
     function renderPhotosPreview(mode) {
-      if (mode === 'new') {
-        const container = document.getElementById('newPhotosPreviewContainer');
-        const text = document.getElementById('newPhotoCountText');
-        container.innerHTML = '';
-        const count = state.tempNewPhotos.length;
-        text.textContent = `(${count} / ${MAX_PHOTOS_PER_TASK} รูป)`;
+      const isNew = mode === 'new';
+      const container = document.getElementById(isNew ? 'newPhotosGalleryContainer' : 'editPhotosGalleryContainer');
+      const badge = document.getElementById(isNew ? 'newPhotoCountBadge' : 'editPhotoCountBadge');
+      if (!container || !badge) return;
 
-        state.tempNewPhotos.forEach((imgUrl, idx) => {
-          const div = document.createElement('div');
-          div.className = "relative group w-14 h-14 rounded-xl overflow-hidden border border-slate-300 shadow-sm shrink-0";
-          div.innerHTML = `
-            <img src="${escUrl(photoSrc(imgUrl))}" class="w-full h-full object-cover" alt="Preview">
-            <button type="button" onclick="removeAttachment('new', 'photo', ${idx})" class="absolute top-0.5 right-0.5 bg-rose-600 text-white rounded-full w-6 h-6 sm:w-4 sm:h-4 text-[11px] sm:text-[9px] flex items-center justify-center shadow hover:bg-rose-700 active:scale-90 transition">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          `;
-          container.appendChild(div);
-        });
-      } else if (mode === 'edit') {
-        const container = document.getElementById('editPhotosGalleryContainer');
-        const badge = document.getElementById('editPhotoCountBadge');
-        container.innerHTML = '';
-        const count = state.tempEditPhotos.length;
-        badge.textContent = `(${count} / ${MAX_PHOTOS_PER_TASK} รูป)`;
+      const photos = isNew ? state.tempNewPhotos : state.tempEditPhotos;
+      container.innerHTML = '';
+      const count = photos.length;
+      badge.textContent = `(${count} / ${MAX_PHOTOS_PER_TASK} รูป)`;
 
-        if (count === 0) {
-          container.innerHTML = `<p class="text-xs text-slate-400 p-1 italic">ยังไม่มีรูปภาพแนบ</p>`;
-          return;
-        }
-
-        state.tempEditPhotos.forEach((imgUrl, idx) => {
-          const div = document.createElement('div');
-          div.className = "relative group w-16 h-16 rounded-xl overflow-hidden border border-slate-300 shadow-sm cursor-pointer shrink-0";
-          div.onclick = () => openPhotoLightbox(state.tempEditPhotos, idx, state.currentEditingTask);
-          div.innerHTML = `
-            <img src="${escUrl(photoSrc(imgUrl))}" class="w-full h-full object-cover hover:scale-110 transition duration-200" alt="Site Photo">
-            <button type="button" onclick="event.stopPropagation(); removeAttachment('edit', 'photo', ${idx})" class="absolute top-0.5 right-0.5 bg-rose-600 text-white rounded-full w-6 h-6 sm:w-4 sm:h-4 text-[11px] sm:text-[9px] flex items-center justify-center shadow hover:bg-rose-700 active:scale-90 transition">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          `;
-          container.appendChild(div);
-        });
+      if (count === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 p-1 italic">ยังไม่มีรูปภาพแนบ</p>`;
+        return;
       }
+
+      photos.forEach((imgUrl, idx) => {
+        const div = document.createElement('div');
+        div.className = "relative group w-16 h-16 rounded-xl overflow-hidden border border-slate-300 shadow-sm cursor-pointer shrink-0";
+        if (isNew) {
+          div.onclick = () => openPhotoLightbox(state.tempNewPhotos, idx, { Job_ID: 'NEW', Project_Name: 'ใบงานใหม่' });
+        } else {
+          div.onclick = () => openPhotoLightbox(state.tempEditPhotos, idx, state.currentEditingTask);
+        }
+        div.innerHTML = `
+          <img src="${escUrl(photoSrc(imgUrl))}" class="w-full h-full object-cover hover:scale-110 transition duration-200" alt="Site Photo">
+          <button type="button" onclick="event.stopPropagation(); removeAttachment('${mode}', 'photo', ${idx})" class="absolute top-0.5 right-0.5 bg-rose-600 text-white rounded-full w-6 h-6 sm:w-4 sm:h-4 text-[11px] sm:text-[9px] flex items-center justify-center shadow hover:bg-rose-700 active:scale-90 transition">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        `;
+        container.appendChild(div);
+      });
     }
 
     // RENDER DOCUMENTS PREVIEW (PDF, WORD, EXCEL)
     function renderDocsPreview(mode) {
-      const docs = mode === 'new' ? state.tempNewDocs : state.tempEditDocs;
-      const container = document.getElementById(mode === 'new' ? 'newDocsPreviewContainer' : 'editDocsGalleryContainer');
-      const label = document.getElementById(mode === 'new' ? 'newDocCountText' : 'editDocCountBadge');
+      const isNew = mode === 'new';
+      const docs = isNew ? state.tempNewDocs : state.tempEditDocs;
+      const container = document.getElementById(isNew ? 'newDocsGalleryContainer' : 'editDocsGalleryContainer');
+      const label = document.getElementById(isNew ? 'newDocCountBadge' : 'editDocCountBadge');
       
+      if (!container || !label) return;
       container.innerHTML = '';
       label.textContent = `(${docs.length} ไฟล์)`;
 
@@ -1822,10 +1812,12 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     // RENDER VIDEOS PREVIEW (MP4, WEBM, MOV)
     function renderVideosPreview(mode) {
-      const videos = mode === 'new' ? state.tempNewVideos : state.tempEditVideos;
-      const container = document.getElementById(mode === 'new' ? 'newVideosPreviewContainer' : 'editVideosGalleryContainer');
-      const label = document.getElementById(mode === 'new' ? 'newVideoCountText' : 'editVideoCountBadge');
+      const isNew = mode === 'new';
+      const videos = isNew ? state.tempNewVideos : state.tempEditVideos;
+      const container = document.getElementById(isNew ? 'newVideosGalleryContainer' : 'editVideosGalleryContainer');
+      const label = document.getElementById(isNew ? 'newVideoCountBadge' : 'editVideoCountBadge');
 
+      if (!container || !label) return;
       container.innerHTML = '';
       label.textContent = `(${videos.length} วิดีโอ)`;
 
@@ -1869,23 +1861,24 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     // RENDER DELIVERY DOCS PREVIEW (FOR CREATE & EDIT MODALS)
     function renderDeliveryPreview(mode) {
-      const docs = mode === 'new' ? (state.tempNewDelivery || []) : (state.tempEditDelivery || []);
-      const container = document.getElementById(mode === 'new' ? 'newDeliveryPreviewContainer' : 'editDeliveryGalleryContainer');
-      const label = document.getElementById(mode === 'new' ? 'newDeliveryCountText' : 'editDeliveryCountBadge');
+      const isNew = mode === 'new';
+      const docs = isNew ? (state.tempNewDelivery || []) : (state.tempEditDelivery || []);
+      const container = document.getElementById(isNew ? 'newDeliveryGalleryContainer' : 'editDeliveryGalleryContainer');
+      const label = document.getElementById(isNew ? 'newDeliveryCountBadge' : 'editDeliveryCountBadge');
       
       if (!container || !label) return;
       container.innerHTML = '';
       label.textContent = `(${docs.length} ไฟล์)`;
 
       if (docs.length === 0) {
-        container.innerHTML = `<p class="text-xs text-blue-600/70 p-1 italic">ยังไม่มีไฟล์ใบส่งมอบงานแนบ</p>`;
+        container.innerHTML = `<p class="text-xs text-slate-400 p-1 italic">ยังไม่มีไฟล์ใบส่งมอบงานแนบ</p>`;
         return;
       }
 
       docs.forEach((doc, idx) => {
         const ext = getFileExt(doc.name || '');
         let iconClass = "fa-file-lines text-slate-600";
-        let bgClass = "bg-white border-blue-200";
+        let bgClass = "bg-white border-emerald-200";
 
         if (ext.includes('pdf')) {
           iconClass = "fa-file-pdf text-rose-600";
@@ -1909,7 +1902,7 @@ const MAX_PHOTOS_PER_TASK = 100;
             </div>
           </div>
           <div class="flex items-center space-x-1 shrink-0">
-            <a href="${escUrl(fileSrc(doc)) || '#'}" ${fileSrc(doc).indexOf('data:') === 0 ? `download="${esc(doc.name)}"` : 'rel="noopener"'} target="_blank" class="p-1 text-blue-600 hover:text-blue-900 transition" title="เปิด / ดาวน์โหลด">
+            <a href="${escUrl(fileSrc(doc)) || '#'}" ${fileSrc(doc).indexOf('data:') === 0 ? `download="${esc(doc.name)}"` : 'rel="noopener"'} target="_blank" class="p-1 text-emerald-700 hover:text-emerald-900 transition" title="เปิด / ดาวน์โหลด">
               <i class="fa-solid ${fileSrc(doc).indexOf('data:') === 0 ? 'fa-download' : 'fa-up-right-from-square'}"></i>
             </a>
             <button type="button" onclick="removeAttachment('${mode}', 'delivery', ${idx})" class="p-1 text-rose-600 hover:text-rose-800 transition" title="ลบไฟล์">
