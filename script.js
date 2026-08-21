@@ -1,9 +1,6 @@
 const MAX_PHOTOS_PER_TASK = 100;
-    // Base64 inflates a file by about a third, and Apps Script answers an
-    // oversized POST with an HTML error page rather than JSON. Batching keeps a
-    // *set* of files small, but one single file always travels alone - so the
-    // per-file ceiling has to stay under the limit on its own.
-    const MAX_ATTACHMENT_MB = 6;
+    // Increased attachment ceiling to 30 MB to support high quality video recordings and large PDFs
+    const MAX_ATTACHMENT_MB = 30;
 
     // Upload time scales directly with these two numbers. 900px keeps nameplates
     // and gauges readable in the lightbox while staying near 60-90 KB per photo;
@@ -1581,15 +1578,13 @@ const MAX_PHOTOS_PER_TASK = 100;
       input.value = '';                       // read the list first, then reset the picker
       if (files.length === 0) return;
 
-      // Anything much larger than this turns into a Base64 body Apps Script
-      // rejects, and the user only saw an opaque network error.
       const tooBig = files.filter(f => f.size > MAX_ATTACHMENT_MB * 1024 * 1024);
       const usable = files.filter(f => f.size <= MAX_ATTACHMENT_MB * 1024 * 1024);
       if (tooBig.length > 0) {
-        alert(`ไฟล์ต่อไปนี้ใหญ่เกิน ${MAX_ATTACHMENT_MB} MB จึงแนบผ่านแอปไม่ได้:\n\n` +
+        alert(`ไฟล์ต่อไปนี้มีขนาดเกิน ${MAX_ATTACHMENT_MB} MB:\n\n` +
               tooBig.map(f => `• ${f.name} (${formatBytes(f.size)})`).join('\n') +
-              `\n\nเป็นข้อจำกัดของ Google Apps Script ที่รับไฟล์ต่อครั้งได้จำกัด\n` +
-              `วิธีแก้สำหรับคลิปยาว: อัปโหลดขึ้น Google Drive เองแล้ววางลิงก์ไว้ในช่อง "หมายเหตุ"`);
+              `\n\n📌 ระบบรองรับการอัปโหลดไฟล์วิดีโอและเอกสารผ่านแอปได้สูงสุดถึง ${MAX_ATTACHMENT_MB} MB ต่อไฟล์\n` +
+              `สำหรับคลิปวิดีโอที่มีความยาวมาก (เช่น 50MB - 100MB+): แนะนำอัปโหลดเข้า Google Drive โดยตรงแล้วนำลิงก์มาวางในช่อง "หมายเหตุ" ได้ครับ`);
       }
       if (usable.length === 0) return;
 
