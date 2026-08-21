@@ -329,8 +329,8 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     const ACTIVE_STATUSES = [
       "วางแผน / เตรียมอุปกรณ์",
-      "แจ้งเข้าทำงาน",
-      "เข้าปฏิบัติงานหน้างาน",
+      "ส่งหนังสือเข้างานแล้ว",
+      "ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน",
       "รอ Testing & Commissioning",
       "ติดปัญหาหน้างาน / รออะไหล่",
       "ค้างทำรายงาน",
@@ -339,8 +339,8 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     const ALL_STATUSES = [
       "วางแผน / เตรียมอุปกรณ์",
-      "แจ้งเข้าทำงาน",
-      "เข้าปฏิบัติงานหน้างาน",
+      "ส่งหนังสือเข้างานแล้ว",
+      "ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน",
       "รอ Testing & Commissioning",
       "ติดปัญหาหน้างาน / รออะไหล่",
       "ค้างทำรายงาน",
@@ -380,14 +380,14 @@ const MAX_PHOTOS_PER_TASK = 100;
         return 'ค้างทำรายงาน';
       }
 
-      // 3. เข้าปฏิบัติงานหน้างาน
-      if (s === 'เข้าปฏิบัติงานหน้างาน' || s === 'ระหว่างปฏิบัติงาน' || s === 'กำลังปฏิบัติงาน' || s.includes('ปฏิบัติงาน') || s.includes('หน้างาน') || s.includes('ทีมช่างอยู่หน้างาน')) {
-        return 'เข้าปฏิบัติงานหน้างาน';
+      // 3. ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน
+      if (s === 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน' || s.includes('ติดต่อประสานงาน') || s.includes('ระหว่างปฏิบัติงาน') || s === 'เข้าปฏิบัติงานหน้างาน' || s.includes('ปฏิบัติงาน') || s.includes('หน้างาน') || s.includes('ทีมช่างอยู่หน้างาน')) {
+        return 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน';
       }
 
-      // 2. แจ้งเข้าทำงาน
-      if (s === 'แจ้งเข้าทำงาน' || s === 'แจ้งเข้าทำงานแล้ว' || s.includes('แจ้งเข้า') || s.includes('ส่งหนังสือเข้างาน') || s.includes('อนุมัติเข้าพื้นที่') || s.includes('ดำเนินการแก้ไข')) {
-        return 'แจ้งเข้าทำงาน';
+      // 2. ส่งหนังสือเข้างานแล้ว
+      if (s === 'ส่งหนังสือเข้างานแล้ว' || s.includes('ส่งหนังสือ') || s === 'แจ้งเข้าทำงาน' || s.includes('แจ้งเข้า') || s.includes('อนุมัติเข้าพื้นที่') || s.includes('ดำเนินการแก้ไข')) {
+        return 'ส่งหนังสือเข้างานแล้ว';
       }
 
       // 1. วางแผน / เตรียมอุปกรณ์
@@ -429,35 +429,16 @@ const MAX_PHOTOS_PER_TASK = 100;
       currentDeliveryJobId: null
     };
 
-    // INITIALIZATION
+    // INITIALIZATION (EMBEDDED LIVE MODE DIRECT)
     window.addEventListener('DOMContentLoaded', () => {
-      localStorage.setItem('pts_db_mode', state.dbMode);
-
       loadState();
-      renderApp();
       startAutoRefresh();
-
-      if (apiUrlMigratedFrom) {
-        showSyncToast('เปลี่ยนไปใช้ลิงก์ Apps Script ใหม่ในไฟล์แล้ว (กด ⚙️ ตั้งค่า API เพื่อดู/แก้)');
-      }
     });
 
     function loadState() {
-      if (state.dbMode === 'mock') {
-        const stored = localStorage.getItem('pts_mock_tasks');
-        if (stored) {
-          try {
-            state.tasks = JSON.parse(stored);
-          } catch(e) {
-            state.tasks = [...INITIAL_SAMPLE_TASKS];
-          }
-        } else {
-          state.tasks = [...INITIAL_SAMPLE_TASKS];
-          saveMockStorage();
-        }
-      } else {
-        fetchTasks();
-      }
+      state.apiUrl = DEFAULT_LIVE_API_URL;
+      state.dbMode = 'live';
+      fetchTasks();
       updateStatusBadge();
     }
 
@@ -1183,8 +1164,8 @@ const MAX_PHOTOS_PER_TASK = 100;
       const activeTasks = all.filter(t => !isClosedStatus(t.Status));
 
       const planCount = all.filter(t => normalizeStatus(t.Status) === 'วางแผน / เตรียมอุปกรณ์').length;
-      const clearedCount = all.filter(t => normalizeStatus(t.Status) === 'แจ้งเข้าทำงาน').length;
-      const onSiteCount = all.filter(t => normalizeStatus(t.Status) === 'เข้าปฏิบัติงานหน้างาน').length;
+      const clearedCount = all.filter(t => normalizeStatus(t.Status) === 'ส่งหนังสือเข้างานแล้ว').length;
+      const onSiteCount = all.filter(t => normalizeStatus(t.Status) === 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน').length;
       const testingCount = all.filter(t => normalizeStatus(t.Status) === 'รอ Testing & Commissioning').length;
       const blockedCount = all.filter(t => normalizeStatus(t.Status) === 'ติดปัญหาหน้างาน / รออะไหล่').length;
       const reportCount = all.filter(t => normalizeStatus(t.Status) === 'ค้างทำรายงาน').length;
@@ -1247,8 +1228,8 @@ const MAX_PHOTOS_PER_TASK = 100;
       const cardIds = [
         { id: 'card-metric-ALL', key: 'ACTIVE_ALL' },
         { id: 'card-metric-1', key: 'วางแผน / เตรียมอุปกรณ์' },
-        { id: 'card-metric-2', key: 'แจ้งเข้าทำงาน' },
-        { id: 'card-metric-3', key: 'เข้าปฏิบัติงานหน้างาน' },
+        { id: 'card-metric-2', key: 'ส่งหนังสือเข้างานแล้ว' },
+        { id: 'card-metric-3', key: 'ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน' },
         { id: 'card-metric-4', key: 'รอ Testing & Commissioning' },
         { id: 'card-metric-5', key: 'ติดปัญหาหน้างาน / รออะไหล่' },
         { id: 'card-metric-6', key: 'ค้างทำรายงาน' },
@@ -2207,41 +2188,55 @@ const MAX_PHOTOS_PER_TASK = 100;
     }
 
     function openCreateModal() {
-      document.getElementById('createJobForm').reset();
-      document.getElementById('newJobId').value = suggestNextJobId();
+      const form = document.getElementById('createJobForm');
+      if (form) form.reset();
+      
+      const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val || '';
+      };
+
+      setVal('newJobId', suggestNextJobId());
 
       const todayStr = new Date().toISOString().split('T')[0];
-      document.getElementById('newPoApprovalDate').value = todayStr;
-      document.getElementById('newTargetDate').value = todayStr;
+      setVal('newPoApprovalDate', todayStr);
+      setVal('newTargetDate', todayStr);
       
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + 30);
-      document.getElementById('newContractExpiryDate').value = futureDate.toISOString().split('T')[0];
+      setVal('newContractExpiryDate', futureDate.toISOString().split('T')[0]);
 
       state.tempNewPhotos = [];
       state.tempNewDocs = [];
       state.tempNewVideos = [];
       state.tempNewDelivery = [];
 
-      document.getElementById('newSiteContactPhone').value = '';
-      document.getElementById('newSiteMapUrl').value = '';
+      setVal('newSiteContactPhone', '');
+      setVal('newSiteMapUrl', '');
 
       renderPhotosPreview('new');
       renderDocsPreview('new');
       renderVideosPreview('new');
       renderDeliveryPreview('new');
 
-      document.getElementById('createModal').classList.remove('hidden');
+      const modal = document.getElementById('createModal');
+      if (modal) modal.classList.remove('hidden');
     }
 
     function closeCreateModal() {
-      document.getElementById('createModal').classList.add('hidden');
+      const modal = document.getElementById('createModal');
+      if (modal) modal.classList.add('hidden');
     }
 
     async function handleCreateJob(e) {
       e.preventDefault();
 
-      const jobId = document.getElementById('newJobId').value.trim();
+      const getVal = (id, def = '') => {
+        const el = document.getElementById(id);
+        return el ? el.value : def;
+      };
+
+      const jobId = getVal('newJobId').trim();
       if (!jobId) {
         alert("กรุณาระบุรหัสใบงาน");
         return;
@@ -2251,27 +2246,30 @@ const MAX_PHOTOS_PER_TASK = 100;
         return;
       }
 
+      const jsaEl = document.getElementById('newJsaCompleted');
+      const isJsaChecked = jsaEl ? jsaEl.checked : false;
+
       const newTask = {
         Job_ID: jobId,
-        Project_Name: document.getElementById('newProjectName').value,
-        Sub_Department: document.getElementById('newSubDept').value,
-        Technician_In_Charge: document.getElementById('newTechnician').value,
-        Task_Detail: document.getElementById('newTaskDetail').value,
-        Status: document.getElementById('newStatus').value,
-        JSA_Completed: document.getElementById('newJsaCompleted').checked ? 'Yes' : 'No',
-        Priority: document.getElementById('newPriority').value,
-        Target_Date: document.getElementById('newTargetDate').value,
-        PO_Approval_Date: document.getElementById('newPoApprovalDate').value,
-        Contract_Expiry_Date: document.getElementById('newContractExpiryDate').value,
+        Project_Name: getVal('newProjectName'),
+        Sub_Department: getVal('newSubDept', 'งานโครงการ'),
+        Technician_In_Charge: getVal('newTechnician'),
+        Task_Detail: getVal('newTaskDetail'),
+        Status: getVal('newStatus', 'วางแผน / เตรียมอุปกรณ์'),
+        JSA_Completed: isJsaChecked ? 'Yes' : 'No',
+        Priority: getVal('newPriority', 'Medium'),
+        Target_Date: getVal('newTargetDate'),
+        PO_Approval_Date: getVal('newPoApprovalDate'),
+        Contract_Expiry_Date: getVal('newContractExpiryDate'),
         Completion_Date: '',
-        Site_Location: document.getElementById('newSiteLocation').value,
-        Site_Contact_Phone: document.getElementById('newSiteContactPhone').value,
-        Site_Map_Url: document.getElementById('newSiteMapUrl').value,
+        Site_Location: getVal('newSiteLocation'),
+        Site_Contact_Phone: getVal('newSiteContactPhone'),
+        Site_Map_Url: getVal('newSiteMapUrl'),
         Notes_Issues: `[${getNowFormatted()}] เปิดใบงานใหม่ในระบบ`,
         Updated_At: getNowFormatted(),
-        Site_Photos: JSON.stringify(state.tempNewPhotos),
-        Document_Files: JSON.stringify(state.tempNewDocs),
-        Video_Files: JSON.stringify(state.tempNewVideos),
+        Site_Photos: JSON.stringify(state.tempNewPhotos || []),
+        Document_Files: JSON.stringify(state.tempNewDocs || []),
+        Video_Files: JSON.stringify(state.tempNewVideos || []),
         Delivery_Doc: JSON.stringify(state.tempNewDelivery || [])
       };
 
@@ -2558,153 +2556,12 @@ const MAX_PHOTOS_PER_TASK = 100;
       }
     }
 
-    // MODAL 4: API CONFIGURATION
-    function openConfigModal() {
-      document.getElementById('apiUrlInput').value = state.apiUrl || DEFAULT_LIVE_API_URL;
-      syncConfigOpenLink();
-      showConfigMsg('', '');
-      const modeRadio = document.querySelector(`input[name="dbMode"][value="${state.dbMode}"]`);
-      if (modeRadio) modeRadio.checked = true;
-      document.getElementById('configModal').classList.remove('hidden');
-    }
-
-    function closeConfigModal() {
-      document.getElementById('configModal').classList.add('hidden');
-    }
-
-    function syncConfigOpenLink() {
-      const link = document.getElementById('configOpenLink');
-      const url = normalizeApiUrl(document.getElementById('apiUrlInput').value);
-      link.href = /^https:\/\/script\.google\.com\//.test(url) ? url : '#';
-    }
-
-    function showConfigMsg(text, kind) {
-      const box = document.getElementById('configTestMsg');
-      const skin = {
-        ok:      'bg-emerald-50 text-emerald-900 border border-emerald-300',
-        error:   'bg-rose-50 text-pts-900 border border-rose-300',
-        warn:    'bg-amber-50 text-amber-900 border border-amber-300',
-        pending: 'bg-slate-100 text-slate-700 border border-slate-300'
-      }[kind];
-
-      if (!text || !skin) {
-        box.className = 'hidden p-3 rounded-xl text-xs font-medium whitespace-pre-line';
-        box.textContent = '';
-        return;
-      }
-      box.className = 'p-3 rounded-xl text-xs font-medium whitespace-pre-line ' + skin;
-      box.textContent = text;
-    }
-
-    function useBuiltInApiUrl() {
-      document.getElementById('apiUrlInput').value = DEFAULT_LIVE_API_URL;
-      syncConfigOpenLink();
-      showConfigMsg('ใส่ลิงก์ที่มากับไฟล์แล้ว กด "ทดสอบการเชื่อมต่อ" เพื่อตรวจสอบ', 'pending');
-    }
-
-    /**
-     * Checks the URL that is currently TYPED in the box, not the saved one, so
-     * a link can be verified before it is committed. Reports which stage failed
-     * - shape, reachability, or reading the sheet - because each has a different
-     * fix and the old dialog reported none of them.
-     */
-    async function testConnection() {
-      const btn = document.getElementById('configTestBtn');
-      const typed = normalizeApiUrl(document.getElementById('apiUrlInput').value);
-      syncConfigOpenLink();
-
-      if (!typed) {
-        showConfigMsg('ยังไม่ได้ใส่ URL', 'error');
-        return;
-      }
-
-      const shapeProblem = validateApiUrlShape(typed);
-      if (shapeProblem && !typed.endsWith('/dev')) {
-        showConfigMsg('❌ ' + shapeProblem, 'error');
-        return;
-      }
-
-      btn.disabled = true;
-      btn.classList.add('opacity-60');
-      showConfigMsg('กำลังทดสอบ...', 'pending');
-
-      // Point the transport at the typed URL for the duration of the test only
-      const previousUrl = state.apiUrl;
-      state.apiUrl = typed;
-      try {
-        const ping = await apiGetDetailed({ ping: '1' });
-        if (!ping.json) {
-          showConfigMsg('❌ ติดต่อ Apps Script ไม่ได้\n\n' + apiErrorText(ping.error) +
-            '\n\nลองกด "เปิดลิงก์ในแท็บใหม่" — ถ้าเห็นหน้าล็อกอินหรือ "ไม่พบเพจ" แปลว่าต้อง Deploy ใหม่โดยตั้ง Who has access = Anyone', 'error');
-          return;
-        }
-
-        const full = await apiGetDetailed({ fresh: '1' });
-        if (!full.json || full.json.status !== 'success' || !Array.isArray(full.json.data)) {
-          showConfigMsg('⚠️ ต่อถึง Apps Script ได้ แต่อ่านชีตไม่สำเร็จ\n\n' +
-            (full.json && full.json.message ? full.json.message : apiErrorText(full.error)) +
-            '\n\nมักเกิดจากยังไม่ได้รัน authorizeDriveAccess หรือแท็บชีตไม่ได้ชื่อ Engineering_Tasks', 'warn');
-          return;
-        }
-
-        const rows = full.json.data.length;
-        showConfigMsg('✅ เชื่อมต่อสำเร็จ\n\n' +
-          'จำนวนใบงานในชีต: ' + rows + ' รายการ' +
-          (rows === 0 ? ' (ชีตใหม่ที่ยังว่าง — พร้อมให้ทดสอบบันทึกข้อมูล)' : '') +
-          '\nrevision: ' + (typeof full.json.rev !== 'undefined' ? full.json.rev : '-') +
-          (shapeProblem ? '\n\n⚠️ ' + shapeProblem : '') +
-          '\n\nกด "บันทึกการตั้งค่า" เพื่อใช้ลิงก์นี้', 'ok');
-      } finally {
-        state.apiUrl = previousUrl;
-        btn.disabled = false;
-        btn.classList.remove('opacity-60');
-      }
-    }
-
-    function saveConfigSettings() {
-      const mode = document.querySelector('input[name="dbMode"]:checked').value;
-      const url = normalizeApiUrl(document.getElementById('apiUrlInput').value);
-
-      if (mode === 'live' && !url) {
-        alert("กรุณากรอก Google Apps Script Web App URL ก่อนเปิดใช้งาน Live Mode");
-        return;
-      }
-
-      if (mode === 'live') {
-        const shapeProblem = validateApiUrlShape(url);
-        if (shapeProblem && !confirm('⚠️ ' + shapeProblem + '\n\nต้องการบันทึกลิงก์นี้ต่อไปหรือไม่?')) return;
-      }
-
-      state.dbMode = mode;
-      state.apiUrl = url;
-      state.lastError = null;
-
-      localStorage.setItem('pts_db_mode', mode);
-      localStorage.setItem(API_URL_KEY, url);
-      // Records the shipped default in force at the moment the user chose this
-      // URL, so a future update only overrides links nobody customised.
-      localStorage.setItem(API_URL_ADOPTED_KEY, DEFAULT_LIVE_API_URL);
-
-      updateStatusBadge();
-      closeConfigModal();
-
-      if (mode === 'live') {
-        fetchTasks();
-      } else {
-        loadState();
-      }
-    }
-
-    function loadSampleDataPrompt() {
-      if (confirm("ต้องการรีเซ็ตข้อมูล Mock Sandbox ให้เป็นข้อมูลตัวอย่างเริ่มต้น 6 รายการหรือไม่?")) {
-        state.tasks = [...INITIAL_SAMPLE_TASKS];
-        saveMockStorage();
-        renderApp();
-        closeConfigModal();
-      }
-    }
-
     // HELPER UTILS
+    function getNowFormatted() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
     function getNowFormatted() {
       const d = new Date();
       const pad = n => String(n).padStart(2, '0');

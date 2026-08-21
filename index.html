@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <title>PTS Engineering Division - Task & Site Management System</title>
@@ -163,17 +166,11 @@
 
         <!-- Header Controls & Status Bar -->
         <div class="flex items-center gap-1.5 sm:gap-3 shrink-0">
-          <!-- Connection Status Indicator (dot only on phones) -->
-          <div id="connectionStatusBadge" class="hidden flex items-center gap-2 px-2 sm:px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-medium">
+          <!-- Connection Status Indicator -->
+          <div id="connectionStatusBadge" class="hidden flex items-center gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-medium">
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" id="statusDot"></span>
             <span id="statusText" class="hidden lg:inline text-slate-300">Google Sheets Live</span>
           </div>
-
-          <!-- API Settings Button -->
-          <button onclick="openConfigModal()" class="p-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 flex items-center gap-2 border border-slate-700 shadow-sm active:scale-95 touch-target" title="ตั้งค่า API">
-            <i class="fa-solid fa-sliders text-slate-400"></i>
-            <span class="hidden md:inline">ตั้งค่า API</span>
-          </button>
 
           <!-- Refresh Data Button -->
           <button onclick="fetchTasks({ fresh: true }).then(markActivity)" class="p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 border border-slate-700 shadow-sm active:scale-95 touch-target" title="รีเฟรชข้อมูล">
@@ -221,28 +218,28 @@
         <p class="text-[11px] text-slate-400 mt-1">เตรียมความพร้อม</p>
       </div>
 
-      <!-- 3. แจ้งเข้าทำงาน -->
-      <div id="card-metric-2" onclick="filterByStatusQuick('แจ้งเข้าทำงาน')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-cyan-400 hover:shadow-md transition active:scale-95 group">
+      <!-- 3. ส่งหนังสือเข้างานแล้ว -->
+      <div id="card-metric-2" onclick="filterByStatusQuick('ส่งหนังสือเข้างานแล้ว')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-cyan-400 hover:shadow-md transition active:scale-95 group">
         <div class="flex items-center justify-between">
-          <p class="text-[11px] font-bold text-cyan-700 uppercase tracking-wider">2. แจ้งเข้าทำงาน</p>
+          <p class="text-[11px] font-bold text-cyan-700 uppercase tracking-wider">2. ส่งหนังสือเข้างานแล้ว</p>
           <span class="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center text-sm group-hover:bg-cyan-600 group-hover:text-white transition">
             <i class="fa-solid fa-passport"></i>
           </span>
         </div>
         <h3 class="text-2xl font-black text-cyan-900 mt-1" id="metricCleared">0</h3>
-        <p class="text-[11px] text-cyan-600 mt-1">ขออนุมัติเข้าพื้นที่</p>
+        <p class="text-[11px] text-cyan-600 mt-1">ส่งหนังสือ / ขออนุมัติเข้าพื้นที่</p>
       </div>
 
-      <!-- 4. เข้าปฏิบัติงานหน้างาน -->
-      <div id="card-metric-3" onclick="filterByStatusQuick('เข้าปฏิบัติงานหน้างาน')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-amber-400 hover:shadow-md transition active:scale-95 group">
+      <!-- 4. ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน -->
+      <div id="card-metric-3" onclick="filterByStatusQuick('ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน')" class="cursor-pointer bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200 hover:border-amber-400 hover:shadow-md transition active:scale-95 group">
         <div class="flex items-center justify-between">
-          <p class="text-[11px] font-bold text-amber-700 uppercase tracking-wider">3. ปฏิบัติงานหน้างาน</p>
+          <p class="text-[11px] font-bold text-amber-700 uppercase tracking-wider">3. ประสานงาน / ระหว่างปฏิบัติงาน</p>
           <span class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-sm group-hover:bg-amber-600 group-hover:text-white transition">
             <i class="fa-solid fa-helmet-safety"></i>
           </span>
         </div>
         <h3 class="text-2xl font-black text-amber-900 mt-1" id="metricOnSite">0</h3>
-        <p class="text-[11px] text-amber-600 mt-1">ทีมช่างอยู่หน้างาน</p>
+        <p class="text-[11px] text-amber-600 mt-1">ประสานงาน / ช่างอยู่หน้างาน</p>
       </div>
 
       <!-- 5. รอ Testing & Commissioning -->
@@ -406,7 +403,12 @@
             </tr>
           </thead>
           <tbody id="tableBody" class="divide-y divide-slate-200 text-sm">
-            <!-- Dynamic Table Rows -->
+            <tr>
+              <td colspan="10" class="text-center py-14 text-slate-500 font-semibold">
+                <i class="fa-solid fa-circle-notch fa-spin text-pts-800 text-2xl"></i>
+                <p class="mt-2.5 text-sm text-slate-600 font-medium">กำลังโหลดข้อมูลใบงานจาก Google Sheets Live...</p>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -473,6 +475,20 @@
           <div>
             <label class="block text-xs font-bold text-slate-700 mb-1">สถานที่ / พิกัดหน้างาน</label>
             <input type="text" id="newSiteLocation" placeholder="เช่น อมตะซิตี้ ชลบุรี อาคาร B" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Site Contact Phone -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">เบอร์ติดต่อหน้างาน</label>
+            <input type="text" id="newSiteContactPhone" placeholder="เช่น 081-234-5678" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+
+          <!-- Site Google Maps URL -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">ลิงก์ Google Maps หน้างาน</label>
+            <input type="text" id="newSiteMapUrl" placeholder="https://maps.google.com/..." class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
           </div>
         </div>
 
@@ -558,8 +574,8 @@
             <label class="block text-xs font-bold text-slate-700 mb-1">สถานะแรกเริ่ม</label>
             <select id="newStatus" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-pts-800">
               <option value="วางแผน / เตรียมอุปกรณ์">1. วางแผน / เตรียมอุปกรณ์</option>
-              <option value="แจ้งเข้าทำงาน">2. แจ้งเข้าทำงาน</option>
-              <option value="เข้าปฏิบัติงานหน้างาน">3. เข้าปฏิบัติงานหน้างาน</option>
+              <option value="ส่งหนังสือเข้างานแล้ว">2. ส่งหนังสือเข้างานแล้ว</option>
+              <option value="ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน">3. ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน</option>
             </select>
           </div>
 
@@ -642,8 +658,8 @@
             </label>
             <select id="editStatusSelect" onchange="changeEditingStatus(this.value)" class="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-xs focus:ring-2 focus:ring-pts-800">
               <option value="วางแผน / เตรียมอุปกรณ์">1. วางแผน / เตรียมอุปกรณ์</option>
-              <option value="แจ้งเข้าทำงาน">2. แจ้งเข้าทำงาน</option>
-              <option value="เข้าปฏิบัติงานหน้างาน">3. เข้าปฏิบัติงานหน้างาน</option>
+              <option value="ส่งหนังสือเข้างานแล้ว">2. ส่งหนังสือเข้างานแล้ว</option>
+              <option value="ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน">3. ติดต่อประสานงานหน้างาน / ระหว่างปฏิบัติงาน</option>
               <option value="รอ Testing & Commissioning">4. รอ Testing & Commissioning</option>
               <option value="ติดปัญหาหน้างาน / รออะไหล่">5. ติดปัญหาหน้างาน / รออะไหล่</option>
               <option value="ค้างทำรายงาน">6. ค้างทำรายงาน</option>
@@ -991,98 +1007,12 @@
     </div>
   </div>
 
-  <!-- MODAL 4: API & GOOGLE SHEETS SETTINGS MODAL -->
-  <div id="configModal" class="fixed inset-0 z-50 hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all flex flex-col max-h-[92dvh]">
-      
-      <div class="bg-slate-900 text-white p-5 flex items-center justify-between">
-        <div class="flex items-center space-x-3">
-          <div class="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-amber-400 border border-slate-700">
-            <i class="fa-solid fa-database text-lg"></i>
-          </div>
-          <div>
-            <h3 class="text-base font-bold">เชื่อมต่อฐานข้อมูล (Database Connection)</h3>
-            <p class="hidden sm:block text-xs text-slate-400">Google Sheets API Bridge & Local Sandbox</p>
-          </div>
-        </div>
-        <button onclick="closeConfigModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
-          <i class="fa-solid fa-xmark text-lg"></i>
-        </button>
-      </div>
-
-      <div class="p-4 sm:p-6 space-y-4 flex-1 overflow-y-auto scroll-body">
-
-        <!-- Mode Switcher Radio -->
-        <div>
-          <label class="block text-xs font-bold text-slate-700 mb-2">เลือกโหมดการทำงาน (Database Mode)</label>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
-            <label class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-start space-x-3">
-              <input type="radio" name="dbMode" value="mock" id="modeMock" class="mt-0.5 text-pts-800 focus:ring-pts-800">
-              <div>
-                <span class="block text-xs font-bold text-slate-800">Demo Sandbox Mode</span>
-                <span class="block text-[11px] text-slate-500">ทดสอบในระบบ (ใช้ LocalStorage)</span>
-              </div>
-            </label>
-            <label class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-start space-x-3">
-              <input type="radio" name="dbMode" value="live" id="modeLive" class="mt-0.5 text-pts-800 focus:ring-pts-800">
-              <div>
-                <span class="block text-xs font-bold text-slate-800">Google Sheets Live</span>
-                <span class="block text-[11px] text-slate-500">ต่อตรง Apps Script Web App</span>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Google Apps Script URL Input -->
-        <div id="liveUrlContainer" class="space-y-1">
-          <label class="block text-xs font-bold text-slate-700">Google Apps Script Web App URL</label>
-          <input type="url" id="apiUrlInput" oninput="syncConfigOpenLink()" placeholder="https://script.google.com/macros/s/AKfycb.../exec" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-pts-800">
-          <div class="flex flex-wrap items-center gap-2 pt-1.5">
-            <button type="button" onclick="testConnection()" id="configTestBtn" class="px-3.5 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-800 text-white text-xs font-bold transition touch-target">
-              <i class="fa-solid fa-plug-circle-bolt mr-1"></i> ทดสอบการเชื่อมต่อ
-            </button>
-            <button type="button" onclick="useBuiltInApiUrl()" class="px-3.5 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition touch-target">
-              <i class="fa-solid fa-rotate-left mr-1"></i> ใช้ลิงก์ที่มากับไฟล์
-            </button>
-            <a id="configOpenLink" href="#" target="_blank" rel="noopener" class="px-3.5 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition">
-              <i class="fa-solid fa-up-right-from-square mr-1"></i> เปิดลิงก์ในแท็บใหม่
-            </a>
-          </div>
-          <p class="text-[11px] text-slate-500 pt-1">
-            <i class="fa-solid fa-circle-info text-cyan-600 mr-1"></i>
-            ถ้ากดทดสอบแล้วไม่ผ่าน ให้กด "เปิดลิงก์ในแท็บใหม่" เพื่อดูว่า Google ตอบอะไรกลับมา
-          </p>
-        </div>
-
-        <!-- Test Output Message -->
-        <div id="configTestMsg" class="hidden p-3 rounded-xl text-xs font-medium whitespace-pre-line"></div>
-
-      </div>
-
-      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 safe-bottom shrink-0">
-        <button type="button" onclick="loadSampleDataPrompt()" class="py-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition">
-          <i class="fa-solid fa-arrows-rotate mr-1"></i> โหลดข้อมูลตัวอย่างเริ่มต้น
-        </button>
-
-        <div class="flex items-center gap-2">
-          <button type="button" onclick="closeConfigModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-200 transition touch-target">
-            ปิด
-          </button>
-          <button type="button" onclick="saveConfigSettings()" class="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md shadow-pts-900/20 transition">
-            บันทึกการตั้งค่า
-          </button>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
   <!-- MOBILE FLOATING ACTION BUTTON (ปุ่มลอยเปิดงานใหม่สำหรับมือถือ) -->
   <button onclick="openCreateModal()" aria-label="เปิดงานใหม่" class="sm:hidden fixed bottom-6 right-5 z-40 w-14 h-14 rounded-2xl bg-gradient-to-tr from-pts-900 to-pts-700 text-white shadow-xl shadow-pts-900/40 flex items-center justify-center text-xl border border-pts-600 active:scale-90 transition duration-150 cursor-pointer touch-target">
     <i class="fa-solid fa-plus"></i>
   </button>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js"></script>
+  <script src="script.js?v=2.3"></script>
 </body>
 </html>
