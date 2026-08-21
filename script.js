@@ -943,33 +943,94 @@ const MAX_PHOTOS_PER_TASK = 100;
      */
     const UPLOAD_BATCH_CHARS = 4000000;   // ~4 MB of Base64 per request
 
+    function showUploadProgress(title, filename, percent, bytesText) {
+      const modal = document.getElementById('uploadProgressModal');
+      if (!modal) return;
+      const tEl = document.getElementById('uploadProgressTitle');
+      const fEl = document.getElementById('uploadProgressFilename');
+      const bEl = document.getElementById('uploadProgressBar');
+      const pEl = document.getElementById('uploadProgressPercent');
+      const byEl = document.getElementById('uploadProgressBytes');
+
+      if (tEl) tEl.textContent = title || 'กำลังอัปโหลดไฟล์...';
+      if (fEl) fEl.textContent = filename || '';
+      if (bEl) bEl.style.width = Math.min(100, Math.max(0, percent)) + '%';
+      if (pEl) pEl.textContent = Math.round(percent) + '%';
+      if (byEl) byEl.textContent = bytesText || '';
+      modal.classList.remove('hidden');
+    }
+
+    function hideUploadProgress() {
+      const modal = document.getElementById('uploadProgressModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function promptAddDriveVideo(mode) {
+      const url = prompt("วางลิงก์ไฟล์วิดีโอจาก Google Drive\n(รองรับไฟล์ขนาดใหญ่ 500MB - 1GB - 5GB+ ได้ไม่จำกัด):\n\nเช่น https://drive.google.com/file/d/.../view");
+      if (!url || !url.trim()) return;
+      const cleanUrl = url.trim();
+      const videoEntry = {
+        name: `Google Drive Video (${new Date().toLocaleTimeString('th-TH')})`,
+        url: cleanUrl,
+        type: 'video/drive',
+        size: 'Drive Cloud'
+      };
+
+      if (mode === 'new') {
+        state.tempNewVideos = state.tempNewVideos || [];
+        state.tempNewVideos.push(videoEntry);
+        renderVideosPreview('new');
+      } else {
+        state.tempEditVideos = state.tempEditVideos || [];
+        state.tempEditVideos.push(videoEntry);
+        renderVideosPreview('edit');
+      }
+      alert("✅ เพิ่มลิงก์วิดีโอจาก Google Drive เรียบร้อยแล้ว สามารถกดบันทึกใบงานได้เลยครับ");
+    }
+
     async function uploadAttachmentsInBackground(attachFields, fileCount) {
       const jobId = attachFields.Job_ID;
       const settled = {};
       const queue = [];
 
+      let totalBytesToUpload = 0;
       ATTACHMENT_FIELDS.forEach(field => {
         settled[field] = [];
         parseAttachmentValue(attachFields[field]).forEach(item => {
           const src = typeof item === 'string' ? item : (item && (item.dataUrl || item.url)) || '';
-          if (String(src).indexOf('data:') === 0) queue.push({ field, item, chars: String(src).length });
-          else settled[field].push(item);
+          if (String(src).indexOf('data:') === 0) {
+            const charLen = String(src).length;
+            const approxBytes = Math.round(charLen * 0.75);
+            totalBytesToUpload += approxBytes;
+            queue.push({ field, item, chars: charLen, approxBytes: approxBytes, name: (item && item.name) || 'ไฟล์แนบ' });
+          } else {
+            settled[field].push(item);
+          }
         });
       });
 
-      let uploaded = 0;
+      let uploadedBytes = 0;
+      let uploadedCount = 0;
+
+      if (queue.length > 0) {
+        showUploadProgress('กำลังเริ่มต้นอัปโหลดไฟล์...', `รหัสงาน: ${jobId}`, 0, `0 B / ${formatBytes(totalBytesToUpload)}`);
+      }
 
       while (queue.length > 0) {
         const batch = [];
         let chars = 0;
+        let batchBytes = 0;
         // Always take at least one, even if that single file is over the budget
         while (queue.length > 0 && (batch.length === 0 || chars + queue[0].chars <= UPLOAD_BATCH_CHARS)) {
           const next = queue.shift();
           chars += next.chars;
+          batchBytes += next.approxBytes;
           batch.push(next);
         }
 
-        showSyncToast(`กำลังอัปโหลดไฟล์แนบ ${uploaded + batch.length}/${fileCount} ...`);
+        const currentFileName = batch.map(b => b.name).join(', ');
+        const percent = Math.min(95, (uploadedBytes / Math.max(1, totalBytesToUpload)) * 100);
+        showUploadProgress(`กำลังส่งข้อมูล (${uploadedCount + batch.length}/${fileCount} ไฟล์)...`, currentFileName, percent, `${formatBytes(uploadedBytes)} / ${formatBytes(totalBytesToUpload)}`);
 
         const data = { Job_ID: jobId };
         ATTACHMENT_FIELDS.forEach(field => {
@@ -980,18 +1041,23 @@ const MAX_PHOTOS_PER_TASK = 100;
         const { json, error } = await apiPost({ action: 'UPDATE', data: data });
 
         if (!json || json.status !== 'success') {
+          hideUploadProgress();
           state.lastError = error || 'not-json';
           updateStatusBadge();
           alert("บันทึกใบงานสำเร็จแล้ว แต่อัปโหลดไฟล์แนบไม่สำเร็จ\n\n" +
             (json && json.message ? json.message : apiErrorText(error)) +
-            `\n\nอัปโหลดสำเร็จแล้ว ${uploaded} จาก ${fileCount} ไฟล์ — ข้อมูลใบงานและไฟล์ที่ขึ้นไปแล้วไม่หาย` +
+            `\n\nอัปโหลดสำเร็จแล้ว ${uploadedCount} จาก ${fileCount} ไฟล์ — ข้อมูลใบงานและไฟล์ที่ขึ้นไปแล้วไม่หาย` +
             "\nเปิดใบงานนี้แล้วแนบไฟล์ที่เหลือใหม่อีกครั้งได้เลย");
           fetchTasks({ silent: true, fresh: true }).then(markActivity);
           return;
         }
 
         reportSaveWarnings(json.warnings);
-        uploaded += batch.length;
+        uploadedBytes += batchBytes;
+        uploadedCount += batch.length;
+
+        const updatedPercent = Math.min(100, (uploadedBytes / Math.max(1, totalBytesToUpload)) * 100);
+        showUploadProgress(`อัปโหลดแล้ว (${uploadedCount}/${fileCount} ไฟล์)...`, 'กำลังบันทึกลง Google Drive...', updatedPercent, `${formatBytes(uploadedBytes)} / ${formatBytes(totalBytesToUpload)}`);
 
         if (json.attachments) {
           ATTACHMENT_FIELDS.forEach(field => {
@@ -1000,15 +1066,21 @@ const MAX_PHOTOS_PER_TASK = 100;
             }
           });
         } else if (queue.length > 0) {
+          hideUploadProgress();
           alert("อัปโหลดไฟล์แนบต่อไม่ได้\n\nสคริปต์ฝั่ง Google ยังเป็นเวอร์ชันเก่า " +
             "กรุณาวาง Code.gs ใหม่แล้ว Deploy > Manage deployments > New version\n\n" +
-            `(อัปโหลดสำเร็จแล้ว ${uploaded} จาก ${fileCount} ไฟล์)`);
+            `(อัปโหลดสำเร็จแล้ว ${uploadedCount} จาก ${fileCount} ไฟล์)`);
           fetchTasks({ silent: true, fresh: true }).then(markActivity);
           return;
         }
       }
 
-      showSyncToast(`อัปโหลดไฟล์แนบเรียบร้อย (${fileCount} ไฟล์)`);
+      showUploadProgress('✅ อัปโหลดไฟล์แนบและวิดีโอสมบูรณ์!', 'บันทึกเข้า Google Drive เรียบร้อย', 100, `${formatBytes(totalBytesToUpload)} / ${formatBytes(totalBytesToUpload)}`);
+      setTimeout(() => {
+        hideUploadProgress();
+        showSyncToast(`อัปโหลดไฟล์แนบและวิดีโอเรียบร้อย (${fileCount} ไฟล์)`);
+      }, 1000);
+
       fetchTasks({ silent: true, fresh: true }).then(markActivity);
     }
 

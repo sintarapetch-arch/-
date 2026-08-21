@@ -565,15 +565,20 @@
 
           <!-- Section 3: Video Files Gallery -->
           <div class="space-y-2">
-            <div class="flex items-center justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
               <span class="text-xs font-bold text-slate-700 flex items-center gap-1">
                 <i class="fa-solid fa-video text-purple-600"></i> วิดีโอหน้างาน (Video Files)
                 <span class="text-[11px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200" id="newVideoCountBadge">(0 วิดีโอ)</span>
               </span>
-              <label class="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-[11px] font-bold cursor-pointer transition">
-                <i class="fa-solid fa-plus mr-1"></i> แนบวิดีโอ
-                <input type="file" accept="video/*" multiple onchange="handleFileSelect(event, 'new', 'video')" class="hidden">
-              </label>
+              <div class="flex items-center gap-1.5">
+                <button type="button" onclick="promptAddDriveVideo('new')" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold transition flex items-center gap-1 shadow-xs cursor-pointer" title="วางลิงก์ Google Drive สำหรับไฟล์ขนาดใหญ่ 500MB - 1GB+">
+                  <i class="fa-brands fa-google-drive text-amber-300"></i> <span>ลิงก์ Drive (500MB-1GB+)</span>
+                </button>
+                <label class="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-[11px] font-bold cursor-pointer transition">
+                  <i class="fa-solid fa-plus mr-1"></i> แนบวิดีโอ
+                  <input type="file" accept="video/*" multiple onchange="handleFileSelect(event, 'new', 'video')" class="hidden">
+                </label>
+              </div>
             </div>
             <div id="newVideosGalleryContainer" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
           </div>
@@ -812,15 +817,20 @@
 
           <!-- Section 3: Video Files Gallery -->
           <div class="space-y-2">
-            <div class="flex items-center justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
               <span class="text-xs font-bold text-slate-700 flex items-center gap-1">
                 <i class="fa-solid fa-video text-purple-600"></i> วิดีโอหน้างาน (Video Files)
                 <span class="text-[11px] font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200" id="editVideoCountBadge">(0 วิดีโอ)</span>
               </span>
-              <label class="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-[11px] font-bold cursor-pointer transition">
-                <i class="fa-solid fa-plus mr-1"></i> แนบวิดีโอ
-                <input type="file" accept="video/*" multiple onchange="handleFileSelect(event, 'edit', 'video')" class="hidden">
-              </label>
+              <div class="flex items-center gap-1.5">
+                <button type="button" onclick="promptAddDriveVideo('edit')" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold transition flex items-center gap-1 shadow-xs cursor-pointer" title="วางลิงก์ Google Drive สำหรับไฟล์ขนาดใหญ่ 500MB - 1GB+">
+                  <i class="fa-brands fa-google-drive text-amber-300"></i> <span>ลิงก์ Drive (500MB-1GB+)</span>
+                </button>
+                <label class="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-[11px] font-bold cursor-pointer transition">
+                  <i class="fa-solid fa-plus mr-1"></i> แนบวิดีโอ
+                  <input type="file" accept="video/*" multiple onchange="handleFileSelect(event, 'edit', 'video')" class="hidden">
+                </label>
+              </div>
             </div>
             <div id="editVideosGalleryContainer" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
           </div>
@@ -1034,7 +1044,36 @@
     </div>
   </div>
 
+  <!-- MODAL 6: UPLOAD PROGRESS INDICATOR (หน้าต่างแสดงความคืบหน้าการอัปโหลดไฟล์/วิดีโอ) -->
+  <div id="uploadProgressModal" class="fixed inset-0 z-[70] hidden bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4 transform transition-all animate-scale-up">
+      <div class="w-16 h-16 rounded-2xl bg-purple-100 text-purple-700 mx-auto flex items-center justify-center text-2xl shadow-inner">
+        <i class="fa-solid fa-cloud-arrow-up animate-bounce"></i>
+      </div>
+      <div>
+        <h3 class="text-base font-bold text-slate-800" id="uploadProgressTitle">กำลังอัปโหลดไฟล์...</h3>
+        <p class="text-xs text-slate-500 mt-1 truncate max-w-xs mx-auto" id="uploadProgressFilename">video_site_inspection.mp4</p>
+      </div>
+
+      <!-- Progress Bar Container -->
+      <div class="space-y-1.5 pt-1">
+        <div class="w-full h-3.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5 shadow-inner">
+          <div id="uploadProgressBar" class="h-full bg-gradient-to-r from-purple-600 via-indigo-600 to-pts-800 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="flex justify-between text-xs font-bold text-slate-700 px-1">
+          <span id="uploadProgressPercent" class="text-purple-700">0%</span>
+          <span id="uploadProgressBytes" class="text-slate-500 font-mono text-[11px]">0 MB / 0 MB</span>
+        </div>
+      </div>
+
+      <p class="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-left flex items-start gap-2">
+        <i class="fa-solid fa-circle-info text-amber-600 text-sm shrink-0 mt-0.5"></i>
+        <span>ระบบกำลังส่งข้อมูลขึ้น Google Drive อย่างปลอดภัย กรุณารอสักครู่ อย่าเพิ่งปิดหน้าต่างเว็บจนกว่าจะเสร็จสิ้น</span>
+      </p>
+    </div>
+  </div>
+
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=2.8"></script>
+  <script src="script.js?v=2.9"></script>
 </body>
 </html>
