@@ -54,6 +54,60 @@ function setupSheetHeaders() {
   return "✅ อัปเดตหัวตารางเรียบร้อย (" + headers.length + " คอลัมน์)";
 }
 
+/**
+ * ⚡ รันฟังก์ชันนี้ใน Apps Script เพื่อแปลงวันที่ทุกแถวใน Google Sheet ให้เป็นมาตรฐาน วัน/เดือน/ปี (dd/MM/yyyy) ทันที
+ */
+function formatAllDatesInSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) return "❌ ไม่พบ Sheet " + SHEET_NAME;
+
+  const headers = getHeaders(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return "ℹ️ ไม่มีข้อมูลในตาราง";
+
+  const dateColIndexes = [];
+  DATE_COLUMNS.forEach(function (colName) {
+    const idx = headers.indexOf(colName);
+    if (idx !== -1) dateColIndexes.push(idx);
+  });
+
+  if (dateColIndexes.length === 0) return "❌ ไม่พบคอลัมน์วันที่";
+
+  const range = sheet.getRange(2, 1, lastRow - 1, headers.length);
+  const values = range.getValues();
+  let count = 0;
+
+  for (let r = 0; r < values.length; r++) {
+    dateColIndexes.forEach(function (c) {
+      const orig = values[r][c];
+      if (orig !== null && orig !== undefined && orig !== "") {
+        const formatted = formatDateForSheet(orig);
+        if (formatted && formatted !== orig) {
+          values[r][c] = formatted;
+          count++;
+        }
+      }
+    });
+  }
+
+  range.setValues(values);
+
+  // ตั้งค่ารูปแบบ NumberFormat ของคอลัมน์วันที่ให้แสดงผลเป็น dd/MM/yyyy กึ่งกลาง
+  DATE_COLUMNS.forEach(function (name) {
+    const col = headers.indexOf(name) + 1;
+    if (col <= 0) return;
+    sheet.getRange(2, col, Math.max(lastRow - 1, 1))
+      .setNumberFormat("@")
+      .setHorizontalAlignment("center");
+  });
+
+  invalidateCache();
+  SpreadsheetApp.flush();
+  Logger.log("✅ แปลงวันที่ในชีตเป็น dd/MM/yyyy เรียบร้อย " + count + " จุด");
+  return "✅ แปลงวันที่ในชีตเป็น dd/MM/yyyy เรียบร้อย (" + count + " จุด)";
+}
+
 // Short-lived read cache. Every write clears it, so the app still sees its own
 // changes instantly - the cache only absorbs repeated polling from the browser.
 const DATA_CACHE_KEY = "pts_tasks_payload";
@@ -118,6 +172,44 @@ const OBSOLETE_HEADERS = [
 ];
 
 const SIZE_SEPARATOR = " · ";
+
+const DATE_COLUMNS = [
+  "Target_Date",
+  "PO_Approval_Date",
+  "Contract_Expiry_Date",
+  "Completion_Date"
+];
+
+function formatDateForSheet(val) {
+  if (val === undefined || val === null) return "";
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, "Asia/Bangkok", "dd/MM/yyyy");
+  }
+  const s = String(val).trim();
+  if (!s || s === "-" || s === "null" || s === "undefined") return "";
+
+  // Match YYYY-MM-DD
+  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (isoMatch) {
+    let year = parseInt(isoMatch[1], 10);
+    if (year > 2400) year -= 543;
+    const month = String(isoMatch[2]).padStart(2, '0');
+    const day = String(isoMatch[3]).padStart(2, '0');
+    return `${day}/${month}/${year}`;
+  }
+
+  // Match DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dmyMatch) {
+    const day = String(dmyMatch[1]).padStart(2, '0');
+    const month = String(dmyMatch[2]).padStart(2, '0');
+    let year = parseInt(dmyMatch[3], 10);
+    if (year > 2400) year -= 543;
+    return `${day}/${month}/${year}`;
+  }
+
+  return s;
+}
 
 /* ---------------------------------------------------------------------------
  * SHEET SETUP
@@ -204,6 +296,14 @@ function ensureHeaders(sheet) {
       .setVerticalAlignment("top");
   });
 
+  DATE_COLUMNS.forEach(function (name) {
+    const col = headers.indexOf(name) + 1;
+    if (col <= 0) return;
+    sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1))
+      .setNumberFormat("@")
+      .setHorizontalAlignment("center");
+  });
+
   return headers;
 }
 
@@ -268,9 +368,11 @@ function doGet(e) {
 
         let val = row[index];
         if (val instanceof Date) {
-          // Timestamps keep their time; plain date fields stay ISO for <input type="date">
+          // Timestamps keep their time; plain date fields standardized to dd/MM/yyyy
           val = Utilities.formatDate(val, "Asia/Bangkok",
-            header === "Updated_At" ? "dd/MM/yyyy HH:mm" : "yyyy-MM-dd");
+            header === "Updated_At" ? "dd/MM/yyyy HH:mm" : "dd/MM/yyyy");
+        } else if (DATE_COLUMNS.indexOf(header) !== -1 && val) {
+          val = formatDateForSheet(val);
         }
         item[header] = val !== undefined && val !== null ? String(val) : "";
       });
@@ -456,7 +558,14 @@ function resolveRow(sheet, expectedRow, jobId, headers) {
  * like "=สรุปงานวันนี้" would be stored as #NAME? and the original wording lost.
  * A leading apostrophe forces plain text; getValue() still returns it without.
  */
-function sheetSafeValue(value) {
+function sheetSafeValue(header, value) {
+  if (typeof header !== "string" && value === undefined) {
+    value = header;
+    header = "";
+  }
+  if (header && DATE_COLUMNS.indexOf(header) !== -1) {
+    return formatDateForSheet(value);
+  }
   if (typeof value !== "string") return value;
   return value.charAt(0) === "=" ? "'" + value : value;
 }
@@ -497,7 +606,7 @@ function handleCreate(sheet, task, e) {
     const row = headers.map(function (header) {
       // Link columns are written afterwards as rich text
       if (LINK_COLUMNS[header]) return "";
-      return task.hasOwnProperty(header) ? sheetSafeValue(task[header]) : "";
+      return task.hasOwnProperty(header) ? sheetSafeValue(header, task[header]) : "";
     });
 
     sheet.appendRow(row);
@@ -566,7 +675,7 @@ function handleUpdate(sheet, task, e) {
       }
       if (runStart === -1) runStart = colIndex;
       run.push(task.hasOwnProperty(header)
-        ? sheetSafeValue(task[header])
+        ? sheetSafeValue(header, task[header])
         : existingRow[colIndex]);
     });
     flushRun();
