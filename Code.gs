@@ -83,8 +83,8 @@ function formatAllDatesInSheet() {
       const orig = values[r][c];
       if (orig !== null && orig !== undefined && orig !== "") {
         const formatted = formatDateForSheet(orig);
-        if (formatted && formatted !== orig) {
-          values[r][c] = formatted;
+        if (formatted) {
+          values[r][c] = "'" + formatted;
           count++;
         }
       }
@@ -566,7 +566,8 @@ function sheetSafeValue(header, value) {
     header = "";
   }
   if (header && DATE_COLUMNS.indexOf(header) !== -1) {
-    return formatDateForSheet(value);
+    const d = formatDateForSheet(value);
+    return d ? "'" + d : "";
   }
   if (typeof value !== "string") return value;
   return value.charAt(0) === "=" ? "'" + value : value;
