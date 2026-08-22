@@ -93,13 +93,14 @@ function formatAllDatesInSheet() {
 
   range.setValues(values);
 
-  // ตั้งค่ารูปแบบ NumberFormat ของคอลัมน์วันที่ให้แสดงผลเป็น dd/MM/yyyy กึ่งกลาง
+  // จัดข้อความให้อยู่กึ่งกลาง
   DATE_COLUMNS.forEach(function (name) {
     const col = headers.indexOf(name) + 1;
     if (col <= 0) return;
-    sheet.getRange(2, col, Math.max(lastRow - 1, 1))
-      .setNumberFormat("@")
-      .setHorizontalAlignment("center");
+    try {
+      sheet.getRange(2, col, Math.max(lastRow - 1, 1))
+        .setHorizontalAlignment("center");
+    } catch (err) {}
   });
 
   invalidateCache();
@@ -299,9 +300,10 @@ function ensureHeaders(sheet) {
   DATE_COLUMNS.forEach(function (name) {
     const col = headers.indexOf(name) + 1;
     if (col <= 0) return;
-    sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1))
-      .setNumberFormat("@")
-      .setHorizontalAlignment("center");
+    try {
+      sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1))
+        .setHorizontalAlignment("center");
+    } catch (err) {}
   });
 
   return headers;
