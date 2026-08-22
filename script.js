@@ -1146,14 +1146,51 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 
       const s = String(value).trim();
-      let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
-      if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+      if (!s) return null;
 
-      m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s);
-      if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+      // 1. ISO format: YYYY-MM-DD or YYYY/MM/DD
+      let m = /^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/.exec(s);
+      if (m) {
+        let y = +m[1];
+        if (y > 2400) y -= 543; // Handle Thai Buddhist Era
+        return new Date(y, +m[2] - 1, +m[3]);
+      }
+
+      // 2. Thai / UK standard: DD/MM/YYYY or DD-MM-YYYY
+      m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(s);
+      if (m) {
+        let y = +m[3];
+        if (y > 2400) y -= 543; // Handle Thai Buddhist Era
+        return new Date(y, +m[2] - 1, +m[1]);
+      }
 
       const d = new Date(s);
-      return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (isNaN(d.getTime())) return null;
+      let y = d.getFullYear();
+      if (y > 2400) y -= 543;
+      return new Date(y, d.getMonth(), d.getDate());
+    }
+
+    function formatDisplayDate(value) {
+      if (!value) return '-';
+      const d = parseDateOnly(value);
+      if (!d) return String(value);
+      const pad = n => String(n).padStart(2, '0');
+      const day = pad(d.getDate());
+      const month = pad(d.getMonth() + 1);
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+
+    function formatDateForInput(value) {
+      if (!value) return '';
+      const d = parseDateOnly(value);
+      if (!d) return '';
+      const pad = n => String(n).padStart(2, '0');
+      const day = pad(d.getDate());
+      const month = pad(d.getMonth() + 1);
+      const year = d.getFullYear();
+      return `${year}-${month}-${day}`;
     }
 
     function getDaysUntilExpiry(expiryDateStr) {
@@ -1534,14 +1571,15 @@ const MAX_PHOTOS_PER_TASK = 100;
 
         let contractBadge = '<span class="text-xs text-slate-400">-</span>';
         if (task.Contract_Expiry_Date) {
+          const displayExp = formatDisplayDate(task.Contract_Expiry_Date);
           if (isCompleted) {
-            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700">${esc(task.Contract_Expiry_Date)}</span>`;
+            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700">${esc(displayExp)}</span>`;
           } else if (daysRem !== null && daysRem < 0) {
-            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-rose-100 text-pts-900 border border-rose-300 animate-pulse">🚨 เลย ${Math.abs(daysRem)} วัน</span>`;
+            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-rose-100 text-pts-900 border border-rose-300 animate-pulse" title="ครบกำหนด: ${esc(displayExp)}">🚨 เลย ${Math.abs(daysRem)} วัน</span>`;
           } else if (daysRem !== null && daysRem <= 7) {
-            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300 animate-pulse">⚠️ ครบสัญญาใน ${daysRem} วัน</span>`;
+            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300 animate-pulse" title="ครบกำหนด: ${esc(displayExp)}">⚠️ ครบสัญญาใน ${daysRem} วัน</span>`;
           } else {
-            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700">${esc(task.Contract_Expiry_Date)}</span>`;
+            contractBadge = `<span class="inline-block px-2.5 py-0.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-700">${esc(displayExp)}</span>`;
           }
         }
 
@@ -1557,7 +1595,7 @@ const MAX_PHOTOS_PER_TASK = 100;
               ${task.Site_Contact_Phone ? `<p class="text-xs text-slate-500 mt-0.5"><i class="fa-solid fa-phone text-emerald-600 mr-1"></i>${esc(task.Site_Contact_Phone)}</p>` : ''}
               <div class="sm:hidden mt-1.5 flex flex-wrap gap-1">
                 <span class="inline-block px-2 py-0.5 rounded-lg text-[10px] font-bold leading-tight ${getStatusBadgeStyle(task.Status)}">${esc(task.Status)}</span>
-                ${isCompleted && task.Completion_Date ? `<span class="inline-block px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-900">เสร็จ: ${esc(task.Completion_Date)}</span>` : (task.Contract_Expiry_Date ? contractBadge : '')}
+                ${isCompleted && task.Completion_Date ? `<span class="inline-block px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-900">เสร็จ: ${esc(formatDisplayDate(task.Completion_Date))}</span>` : (task.Contract_Expiry_Date ? contractBadge : '')}
               </div>
             </div>
           </td>
@@ -1565,11 +1603,11 @@ const MAX_PHOTOS_PER_TASK = 100;
           <td class="py-3 px-2 sm:px-4 text-xs font-medium text-slate-700 align-top">
             <i class="fa-solid fa-user-gear text-slate-400 mr-1"></i>${esc(task.Technician_In_Charge || '-')}
           </td>
-          <td class="hidden sm:table-cell py-3 px-4 text-xs font-mono text-slate-600 align-top">${esc(task.PO_Approval_Date || '-')}</td>
+          <td class="hidden sm:table-cell py-3 px-4 text-xs font-mono text-slate-600 align-top">${esc(formatDisplayDate(task.PO_Approval_Date))}</td>
           <td class="py-3 px-2 sm:px-4 align-top">
             ${isCompleted ? `
               <span class="inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-bold font-mono bg-emerald-50 text-emerald-950 border border-emerald-300">
-                <i class="fa-solid fa-calendar-check text-emerald-600 mr-1"></i>${esc(task.Completion_Date || 'เสร็จสิ้น')}
+                <i class="fa-solid fa-calendar-check text-emerald-600 mr-1"></i>${esc(formatDisplayDate(task.Completion_Date) || 'เสร็จสิ้น')}
               </span>
             ` : contractBadge}
           </td>
@@ -2132,13 +2170,13 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       let contractLine = '<span class="text-slate-400">ไม่ได้ระบุวันครบกำหนดสัญญา</span>';
       if (isCompleted) {
-        contractLine = `<span class="text-emerald-700 font-bold"><i class="fa-solid fa-flag-checkered mr-1"></i>ส่งมอบงานเรียบร้อย (${esc(task.Completion_Date || '-')})</span>`;
+        contractLine = `<span class="text-emerald-700 font-bold"><i class="fa-solid fa-flag-checkered mr-1"></i>ส่งมอบงานเรียบร้อย (${esc(formatDisplayDate(task.Completion_Date))})</span>`;
       } else if (daysRem !== null && daysRem < 0) {
-        contractLine = `<span class="text-rose-700 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>เลยกำหนดสัญญาแล้ว ${Math.abs(daysRem)} วัน (${esc(task.Contract_Expiry_Date)})</span>`;
+        contractLine = `<span class="text-rose-700 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>เลยกำหนดสัญญาแล้ว ${Math.abs(daysRem)} วัน (${esc(formatDisplayDate(task.Contract_Expiry_Date))})</span>`;
       } else if (daysRem !== null && daysRem <= 7) {
-        contractLine = `<span class="text-amber-800 font-bold"><i class="fa-solid fa-clock mr-1"></i>ครบกำหนดสัญญาในอีก ${daysRem} วัน (${esc(task.Contract_Expiry_Date)})</span>`;
+        contractLine = `<span class="text-amber-800 font-bold"><i class="fa-solid fa-clock mr-1"></i>ครบกำหนดสัญญาในอีก ${daysRem} วัน (${esc(formatDisplayDate(task.Contract_Expiry_Date))})</span>`;
       } else if (daysRem !== null) {
-        contractLine = `<span class="text-slate-600"><i class="fa-regular fa-calendar-check mr-1"></i>ครบกำหนดสัญญา: ${esc(task.Contract_Expiry_Date)}</span>`;
+        contractLine = `<span class="text-slate-600"><i class="fa-regular fa-calendar-check mr-1"></i>ครบกำหนดสัญญา: ${esc(formatDisplayDate(task.Contract_Expiry_Date))}</span>`;
       }
 
       document.getElementById('detailSummary').innerHTML = `
@@ -2191,10 +2229,10 @@ const MAX_PHOTOS_PER_TASK = 100;
         cell('เบอร์ติดต่อหน้างาน', task.Site_Contact_Phone, 'fa-phone-volume text-emerald-600', phoneAction),
         cell('สถานที่ / พิกัดหน้างาน', task.Site_Location, 'fa-location-dot text-rose-500', mapAction),
         cell('แผนที่โลเคชั่นงาน (Google Maps Link)', task.Site_Map_Url ? 'เปิดดูแผนที่' : (task.Site_Location ? 'ค้นหาตามพิกัด' : '-'), 'fa-map-pin text-rose-600', mapAction),
-        cell('วันอนุมัติ PO', task.PO_Approval_Date, 'fa-file-signature text-amber-600'),
-        cell('วันปฏิบัติงาน (Target)', task.Target_Date, 'fa-calendar-day'),
-        cell('วันครบกำหนดสัญญา', task.Contract_Expiry_Date, 'fa-calendar-xmark text-pts-800'),
-        cell('วันที่งานเสร็จจริง', task.Completion_Date, 'fa-flag-checkered text-emerald-700'),
+        cell('วันอนุมัติ PO', formatDisplayDate(task.PO_Approval_Date), 'fa-file-signature text-amber-600'),
+        cell('วันปฏิบัติงาน (Target)', formatDisplayDate(task.Target_Date), 'fa-calendar-day'),
+        cell('วันครบกำหนดสัญญา', formatDisplayDate(task.Contract_Expiry_Date), 'fa-calendar-xmark text-pts-800'),
+        cell('วันที่งานเสร็จจริง', formatDisplayDate(task.Completion_Date), 'fa-flag-checkered text-emerald-700'),
         `<div class="sm:col-span-2 p-3 rounded-2xl bg-slate-50 border border-slate-200">
            <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">
              <i class="fa-solid fa-clipboard-list mr-1 text-slate-400"></i>รายละเอียดงาน
@@ -2440,9 +2478,9 @@ const MAX_PHOTOS_PER_TASK = 100;
       setVal('editSiteMapUrl', task.Site_Map_Url);
       setVal('editTaskDetail', task.Task_Detail);
       
-      setVal('editPoApprovalDate', task.PO_Approval_Date);
-      setVal('editContractExpiryDate', task.Contract_Expiry_Date);
-      setVal('editCompletionDate', task.Completion_Date);
+      setVal('editPoApprovalDate', formatDateForInput(task.PO_Approval_Date));
+      setVal('editContractExpiryDate', formatDateForInput(task.Contract_Expiry_Date));
+      setVal('editCompletionDate', formatDateForInput(task.Completion_Date));
 
       const statusSelect = document.getElementById('editStatusSelect');
       if (statusSelect) statusSelect.value = normalizeStatus(task.Status);
@@ -2483,7 +2521,7 @@ const MAX_PHOTOS_PER_TASK = 100;
             </div>
             <div>
               <h4 class="text-xs font-bold text-emerald-950">สถานะสัญญา: ส่งมอบงานเสร็จสมบูรณ์แล้ว</h4>
-              <p class="text-[11px] text-emerald-700">วันที่อนุมัติ PO: ${task.PO_Approval_Date || '-'} | ครบสัญญา: ${task.Contract_Expiry_Date || '-'} | งานเสร็จจริง: ${task.Completion_Date || '-'}</p>
+              <p class="text-[11px] text-emerald-700">วันที่อนุมัติ PO: ${formatDisplayDate(task.PO_Approval_Date)} | ครบสัญญา: ${formatDisplayDate(task.Contract_Expiry_Date)} | งานเสร็จจริง: ${formatDisplayDate(task.Completion_Date)}</p>
             </div>
           </div>
         `;
@@ -2496,7 +2534,7 @@ const MAX_PHOTOS_PER_TASK = 100;
             </div>
             <div>
               <h4 class="text-xs font-bold text-pts-950">🚨 แจ้งเตือน: สัญญาเลยกำหนดเวลาแล้ว ${Math.abs(daysRem)} วัน!</h4>
-              <p class="text-[11px] text-rose-700">วันครบกำหนดสัญญา: ${task.Contract_Expiry_Date} | โปรดเร่งรัดดำเนินการส่งมอบงาน</p>
+              <p class="text-[11px] text-rose-700">วันครบกำหนดสัญญา: ${formatDisplayDate(task.Contract_Expiry_Date)} | โปรดเร่งรัดดำเนินการส่งมอบงาน</p>
             </div>
           </div>
         `;
@@ -2509,7 +2547,7 @@ const MAX_PHOTOS_PER_TASK = 100;
             </div>
             <div>
               <h4 class="text-xs font-bold text-amber-950">⚠️ แจ้งเตือนสัญญา: จะครบกำหนดภายในอีก ${daysRem} วัน</h4>
-              <p class="text-[11px] text-amber-800">วันครบกำหนดสัญญา: ${task.Contract_Expiry_Date} (วันอนุมัติ PO: ${task.PO_Approval_Date || '-'})</p>
+              <p class="text-[11px] text-amber-800">วันครบกำหนดสัญญา: ${formatDisplayDate(task.Contract_Expiry_Date)} (วันอนุมัติ PO: ${formatDisplayDate(task.PO_Approval_Date)})</p>
             </div>
           </div>
         `;
@@ -2522,7 +2560,7 @@ const MAX_PHOTOS_PER_TASK = 100;
             </div>
             <div>
               <h4 class="text-xs font-bold text-slate-800">กำหนดเวลาตามสัญญา (Contract Timeline)</h4>
-              <p class="text-[11px] text-slate-500">วันอนุมัติ PO: ${task.PO_Approval_Date || '-'} | ครบกำหนดสัญญา: ${task.Contract_Expiry_Date || '-'}</p>
+              <p class="text-[11px] text-slate-500">วันอนุมัติ PO: ${formatDisplayDate(task.PO_Approval_Date)} | ครบกำหนดสัญญา: ${formatDisplayDate(task.Contract_Expiry_Date)}</p>
             </div>
           </div>
         `;
@@ -2725,13 +2763,13 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       // Form Sheet Data
       document.getElementById('formSheetJobId').textContent = task.Job_ID;
-      document.getElementById('formSheetDate').textContent = `วันที่ส่งมอบ: ${task.Completion_Date || task.Target_Date || getNowFormatted().split(' ')[0]}`;
+      document.getElementById('formSheetDate').textContent = `วันที่ส่งมอบ: ${formatDisplayDate(task.Completion_Date || task.Target_Date || getNowFormatted().split(' ')[0])}`;
       document.getElementById('formSheetProject').textContent = task.Project_Name || '-';
       document.getElementById('formSheetSubDept').textContent = task.Sub_Department || '-';
       document.getElementById('formSheetLocation').textContent = task.Site_Location || '-';
       document.getElementById('formSheetContact').textContent = task.Site_Contact_Phone || '-';
-      document.getElementById('formSheetPoDate').textContent = task.PO_Approval_Date || '-';
-      document.getElementById('formSheetExpiryDate').textContent = task.Contract_Expiry_Date || '-';
+      document.getElementById('formSheetPoDate').textContent = formatDisplayDate(task.PO_Approval_Date);
+      document.getElementById('formSheetExpiryDate').textContent = formatDisplayDate(task.Contract_Expiry_Date);
       document.getElementById('formSheetTaskDetail').textContent = task.Task_Detail || 'ดำเนินการติดตั้ง / ตรวจสอบระบบตามสัญญาเสร็จสิ้นสมบูรณ์';
       
       const isJsaOk = (task.JSA_Completed || '').toLowerCase() === 'yes';
@@ -2739,7 +2777,7 @@ const MAX_PHOTOS_PER_TASK = 100;
         ? '<i class="fa-solid fa-shield-check mr-1 text-emerald-600"></i>ผ่านการประเมินความปลอดภัยเรียบร้อย (JSA Approved)'
         : '<i class="fa-solid fa-triangle-exclamation mr-1 text-amber-600"></i>ยังไม่ได้รับการรับรอง JSA (Pending)';
       
-      document.getElementById('formSheetCompletionDate').textContent = task.Completion_Date || task.Target_Date || '-';
+      document.getElementById('formSheetCompletionDate').textContent = formatDisplayDate(task.Completion_Date || task.Target_Date);
       document.getElementById('formSheetTechName').textContent = `(${task.Technician_In_Charge || 'หัวหน้าช่างผู้รับผิดชอบ'})`;
 
       // Attached Delivery Files
