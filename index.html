@@ -1008,6 +1008,176 @@
         </button>
       </div>
 
+  <!-- MODAL 5: DELIVERY DOCUMENT & WORK HANDOVER MODAL -->
+  <div id="deliveryModal" class="fixed inset-0 z-50 hidden bg-slate-900/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all my-0 sm:my-6 flex flex-col max-h-[94dvh] sm:max-h-[94vh]">
+
+      <!-- Modal Header -->
+      <div class="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-4 sm:p-5 flex items-center justify-between border-b border-blue-800 shrink-0">
+        <div class="flex items-center space-x-3 min-w-0">
+          <span id="deliveryJobIdBadge" class="px-3 py-1 rounded-xl bg-blue-600 text-white font-mono text-xs sm:text-sm font-bold border border-blue-400 shrink-0 shadow-sm">
+            PTS-ENG-000
+          </span>
+          <div class="min-w-0">
+            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2 truncate">
+              <i class="fa-solid fa-file-signature text-blue-300"></i>
+              <span>เอกสารใบส่งมอบงาน / ตรวจรับงาน</span>
+            </h3>
+            <p class="text-xs text-blue-200 truncate" id="deliverySubtitle">งานโครงการ</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2 shrink-0">
+          <!-- Desktop Action Buttons in Header -->
+          <button id="deliveryHeaderPrintBtn" onclick="printDeliverySlip()" type="button" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition border border-white/20">
+            <i class="fa-solid fa-print"></i> พิมพ์เอกสาร
+          </button>
+          <label id="deliveryHeaderUploadBtn" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer shadow-sm">
+            <i class="fa-solid fa-cloud-arrow-up"></i> + แนบไฟล์เพิ่ม
+            <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple onchange="handleDeliveryModalUpload(event)" class="hidden">
+          </label>
+          <button type="button" onclick="closeDeliveryModal()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs (Form View vs Attached Files) -->
+      <div class="bg-slate-100 px-4 py-2 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-2">
+          <button type="button" id="tabDeliveryFormBtn" onclick="switchDeliveryTab('form')" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white text-blue-900 shadow-sm border border-slate-200 transition">
+            <i class="fa-solid fa-file-invoice mr-1 text-blue-600"></i> ใบส่งมอบงาน (Form Sheet)
+          </button>
+          <button type="button" id="tabDeliveryFilesBtn" onclick="switchDeliveryTab('files')" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-200 text-slate-700 hover:bg-white transition">
+            <i class="fa-solid fa-paperclip mr-1 text-slate-500"></i> ไฟล์เอกสารแนบ <span id="deliveryFilesBadge" class="ml-1 text-[11px] font-bold text-blue-700">(0)</span>
+          </button>
+        </div>
+
+        <div class="text-[11px] text-slate-500 hidden md:block">
+          <i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i>ระบบเอกสารรองรับทั้งมือถือและ PC
+        </div>
+      </div>
+
+      <!-- Modal Content Body -->
+      <div class="p-3 sm:p-6 space-y-4 flex-1 overflow-y-auto scroll-body bg-slate-50/50">
+
+        <!-- TAB 1: FORM SHEET (PRINTABLE HANDOVER DOCUMENT) -->
+        <div id="deliveryFormView" class="space-y-4">
+          <div id="printableHandoverSheet" class="bg-white p-5 sm:p-8 rounded-2xl border border-slate-300 shadow-sm space-y-6 text-slate-800">
+            <!-- Sheet Header -->
+            <div class="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 class="text-lg sm:text-xl font-bold text-slate-900 uppercase tracking-tight">หจก. ปกรณ์ เทคนิคอล ซัพพลาย</h2>
+                <p class="text-xs text-slate-600">PAKORN TECHNICAL SUPPLY LTD., PART. · ENGINEERING DIVISION</p>
+                <p class="text-[11px] text-slate-500 mt-0.5">เอกสารส่งมอบงาน / ตรวจรับงานและยืนยันการปฏิบัติงาน (Work Handover Sheet)</p>
+              </div>
+              <div class="text-left sm:text-right bg-blue-50 p-2.5 sm:p-3 rounded-xl border border-blue-200">
+                <p class="text-xs font-bold text-blue-950">เลขที่ใบงาน: <span id="formSheetJobId" class="font-mono text-blue-800">PTS-ENG-000</span></p>
+                <p class="text-[11px] text-blue-700 mt-0.5" id="formSheetDate">วันที่ส่งมอบ: -</p>
+              </div>
+            </div>
+
+            <!-- Job Information Table Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span class="text-slate-500 font-medium block text-[11px]">ชื่อโครงการ / ลูกค้า:</span>
+                <span id="formSheetProject" class="font-bold text-slate-900 text-sm mt-0.5 block">-</span>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span class="text-slate-500 font-medium block text-[11px]">แผนก / ฝ่ายผู้รับผิดชอบ:</span>
+                <span id="formSheetSubDept" class="font-bold text-slate-900 text-sm mt-0.5 block">-</span>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span class="text-slate-500 font-medium block text-[11px]">สถานที่ปฏิบัติงาน:</span>
+                <span id="formSheetLocation" class="font-semibold text-slate-800 mt-0.5 block">-</span>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span class="text-slate-500 font-medium block text-[11px]">เบอร์ติดต่อหน้างาน:</span>
+                <span id="formSheetContact" class="font-semibold text-slate-800 mt-0.5 block">-</span>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span class="text-slate-500 font-medium block text-[11px]">วันอนุมัติ PO:</span>
+                <span id="formSheetPoDate" class="font-semibold text-slate-800 mt-0.5 block">-</span>
+              </div>
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span class="text-slate-500 font-medium block text-[11px]">วันครบกำหนดสัญญา:</span>
+                <span id="formSheetExpiryDate" class="font-semibold text-slate-800 mt-0.5 block">-</span>
+              </div>
+            </div>
+
+            <!-- Task Detail Description -->
+            <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+              <span class="text-slate-600 font-bold block text-[11px] uppercase tracking-wider">
+                <i class="fa-solid fa-list-check mr-1 text-slate-500"></i>สรุปรายละเอียดงานที่ส่งมอบ
+              </span>
+              <p id="formSheetTaskDetail" class="text-slate-800 whitespace-pre-wrap leading-relaxed">-</p>
+            </div>
+
+            <!-- JSA & Safety Clearance -->
+            <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 text-emerald-900 font-medium" id="formSheetJsa">
+                <i class="fa-solid fa-shield-check text-emerald-600 text-base"></i>
+                <span>ผ่านการประเมินความปลอดภัยเรียบร้อย (JSA Approved)</span>
+              </div>
+              <div class="text-[11px] text-emerald-700">
+                วันที่งานเสร็จจริง: <span id="formSheetCompletionDate" class="font-bold">-</span>
+              </div>
+            </div>
+
+            <!-- Signatures Section -->
+            <div class="pt-6 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-6 text-center text-xs">
+              <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-4">
+                <p class="font-bold text-slate-700">ผู้ส่งมอบงาน (ฝ่ายวิศวกรรม/ช่าง)</p>
+                <div class="h-14 border-b border-dashed border-slate-400 mx-6"></div>
+                <p class="text-slate-600 font-medium" id="formSheetTechName">(หัวหน้าช่างผู้รับผิดชอบ)</p>
+                <p class="text-[10px] text-slate-400">วันที่: ......./......./............</p>
+              </div>
+
+              <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-4">
+                <p class="font-bold text-slate-700">ผู้ตรวจรับมอบงาน / ลูกค้า</p>
+                <div class="h-14 border-b border-dashed border-slate-400 mx-6"></div>
+                <p class="text-slate-600 font-medium">(ลงชื่อผู้ตรวจรับมอบงาน)</p>
+                <p class="text-[10px] text-slate-400">วันที่: ......./......./............</p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- TAB 2: ATTACHED DELIVERY FILES VIEW -->
+        <div id="deliveryFilesView" class="hidden space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm">
+            <div>
+              <h4 class="text-xs font-bold text-slate-800">ไฟล์เอกสารใบส่งมอบงานที่บันทึกไว้</h4>
+              <p class="text-[11px] text-slate-500">รองรับไฟล์ PDF, Word, Excel และรูปภาพสแกนเอกสาร</p>
+            </div>
+            <label class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
+              <i class="fa-solid fa-cloud-arrow-up"></i> + แนบไฟล์ลงระบบ
+              <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple onchange="handleDeliveryModalUpload(event)" class="hidden">
+            </label>
+          </div>
+
+          <div id="deliveryAttachedFilesList" class="grid grid-cols-1 sm:grid-cols-2 gap-3 min-h-[120px]"></div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 safe-bottom shrink-0">
+        <button type="button" onclick="closeDeliveryModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+          ปิดหน้าต่าง
+        </button>
+
+        <div class="flex items-center gap-2">
+          <button id="deliveryFooterPrintBtn" type="button" onclick="printDeliverySlip()" class="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+            <i class="fa-solid fa-print"></i> พิมพ์ใบส่งมอบงาน
+          </button>
+          <button type="button" onclick="editFromDeliveryModal()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+            <i class="fa-solid fa-pen-to-square"></i> แก้ไขข้อมูลงาน
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -1074,6 +1244,6 @@
   </div>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=3.0"></script>
+  <script src="script.js?v=3.1"></script>
 </body>
 </html>

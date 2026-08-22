@@ -1621,7 +1621,7 @@ const MAX_PHOTOS_PER_TASK = 100;
               <div class="flex flex-wrap items-center gap-1 text-xs font-bold text-slate-600">
                 ${photos.length > 0 ? `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-pts-800"><i class="fa-solid fa-camera mr-0.5"></i>${photos.length}</span>` : ''}
                 ${docs.length > 0 ? `<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700"><i class="fa-solid fa-file-pdf mr-0.5"></i>${docs.length}</span>` : ''}
-                ${deliveryFiles.length > 0 ? `<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-black border border-emerald-200" title="มีใบส่งมอบงาน"><i class="fa-solid fa-file-signature mr-0.5 text-emerald-600"></i>${deliveryFiles.length}</span>` : ''}
+                ${deliveryFiles.length > 0 ? `<button type="button" onclick="event.stopPropagation(); openDeliveryDocModal('${esc(task.Job_ID)}')" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 font-bold border border-blue-300 hover:bg-blue-200 transition cursor-pointer" title="คลิกดูใบส่งมอบงาน (${deliveryFiles.length} ไฟล์)"><i class="fa-solid fa-file-signature mr-0.5 text-blue-700"></i>${deliveryFiles.length}</button>` : ''}
                 ${videos.length > 0 ? `<span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700"><i class="fa-solid fa-video mr-0.5"></i>${videos.length}</span>` : ''}
                 ${photos.length === 0 && docs.length === 0 && deliveryFiles.length === 0 && videos.length === 0 ? '<span class="text-slate-400 font-normal">-</span>' : ''}
               </div>
