@@ -1,0 +1,25 @@
+{
+  "name": "เธซเธเธ. เธเธเธฃเธ“เน เน€เธ—เธเธเธดเธเธญเธฅ เธเธฑเธเธเธฅเธฒเธข",
+  "short_name": "PTS Tasks",
+  "description": "เธฃเธฐเธเธเธเธฑเธ”เธเธฒเธฃเธเธฒเธเธเนเธฒเธเนเธฅเธฐเธ•เธดเธ”เธ•เธฒเธกเนเธเธเธฒเธ เธเนเธฒเธขเธงเธดเธจเธงเธเธฃเธฃเธก - เธซเธเธ. เธเธเธฃเธ“เน เน€เธ—เธเธเธดเธเธญเธฅ เธเธฑเธเธเธฅเธฒเธข",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

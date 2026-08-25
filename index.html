@@ -8,9 +8,19 @@
   <meta http-equiv="Expires" content="0">
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PTS Tasks">
+  <meta name="application-name" content="PTS Tasks">
+  
   <title>PTS Engineering Division - Task & Site Management System</title>
+  
+  <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/jpeg" href="logo.jpg">
   <link rel="apple-touch-icon" href="logo.jpg">
+  <link rel="apple-touch-icon" sizes="152x152" href="logo.jpg">
+  <link rel="apple-touch-icon" sizes="180x180" href="logo.jpg">
+  <link rel="apple-touch-icon" sizes="167x167" href="logo.jpg">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -130,17 +140,45 @@
       overscroll-behavior: contain;
     }
 
-    /* A <td> ignores max-width, so the project-name column is clamped by an
-     * inner block. Plain CSS rather than an arbitrary Tailwind class, because
-     * the CDN JIT does not reliably generate those for injected table rows. */
-    @media (max-width: 639px) {
-      .cell-clamp {
-        max-width: 40vw;
-      }
+    /* Splash Screen progress animation */
+    @keyframes progressIndeterminate {
+      0% { transform: translateX(-100%) scaleX(0.2); }
+      50% { transform: translateX(0%) scaleX(0.7); }
+      100% { transform: translateX(100%) scaleX(0.2); }
+    }
+    .animate-progress-indeterminate {
+      animation: progressIndeterminate 1.4s infinite ease-in-out;
+      width: 100%;
+      transform-origin: 0% 50%;
     }
   </style>
 </head>
 <body class="h-full bg-slate-100 text-slate-800 flex flex-col antialiased selection:bg-pts-800 selection:text-white">
+
+  <!-- APP SPLASH SCREEN (หน้าจอแสดงโลโก้ระหว่างโหลดระบบ) -->
+  <div id="appSplashScreen" class="fixed inset-0 z-[100] bg-slate-950 flex flex-col items-center justify-center p-6 transition-opacity duration-500">
+    <div class="flex flex-col items-center text-center space-y-5 max-w-xs">
+      
+      <!-- Pulsing Logo Box -->
+      <div class="relative">
+        <div class="absolute -inset-3 bg-gradient-to-r from-pts-800 to-rose-600 rounded-3xl blur-xl opacity-60 animate-pulse"></div>
+        <img src="logo.jpg" alt="PTS Logo" class="relative w-24 h-24 sm:w-28 sm:h-28 rounded-3xl object-cover shadow-2xl ring-4 ring-white/20 bg-white">
+      </div>
+
+      <!-- App Title -->
+      <div class="space-y-1">
+        <h2 class="text-lg sm:text-xl font-bold text-white tracking-tight">หจก. ปกรณ์ เทคนิคอล ซัพพลาย</h2>
+        <p class="text-xs text-pts-100 font-medium">Engineering Division · Task System</p>
+      </div>
+
+      <!-- Animated Progress Line -->
+      <div class="w-48 h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+        <div class="h-full bg-gradient-to-r from-pts-800 via-rose-500 to-amber-400 rounded-full animate-progress-indeterminate"></div>
+      </div>
+
+      <p class="text-[11px] text-slate-400 font-mono tracking-wider pt-1" id="splashStatusText">กำลังเชื่อมต่อข้อมูล...</p>
+    </div>
+  </div>
 
   <!-- TOP APP HEADER -->
   <header class="glass-header text-white sticky top-0 z-30 shadow-lg border-b border-slate-800">
@@ -1247,6 +1285,6 @@
   </div>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=3.2"></script>
+  <script src="script.js?v=3.3"></script>
 </body>
 </html>
