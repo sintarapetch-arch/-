@@ -9,6 +9,8 @@
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <title>PTS Engineering Division - Task & Site Management System</title>
+  <link rel="icon" type="image/jpeg" href="logo.jpg">
+  <link rel="apple-touch-icon" href="logo.jpg">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -147,9 +149,7 @@
 
         <!-- Brand & Title -->
         <div class="flex items-center gap-2.5 sm:gap-4 min-w-0">
-          <div class="w-9 h-9 sm:w-12 sm:h-12 shrink-0 rounded-xl sm:rounded-2xl bg-gradient-to-br from-pts-800 to-pts-600 flex items-center justify-center text-white shadow-md shadow-pts-900/40 ring-2 ring-pts-700/50">
-            <i class="fa-solid fa-screwdriver-wrench text-base sm:text-xl"></i>
-          </div>
+          <img src="logo.jpg" alt="PTS Logo" class="w-9 h-9 sm:w-12 sm:h-12 shrink-0 rounded-xl sm:rounded-2xl object-cover shadow-md shadow-black/40 ring-2 ring-white/20 bg-white">
           <div class="min-w-0">
             <div class="flex items-center gap-2">
               <h1 class="text-sm sm:text-xl font-bold tracking-tight text-white font-sans truncate">
@@ -1066,10 +1066,13 @@
           <div id="printableHandoverSheet" class="bg-white p-5 sm:p-8 rounded-2xl border border-slate-300 shadow-sm space-y-6 text-slate-800">
             <!-- Sheet Header -->
             <div class="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 class="text-lg sm:text-xl font-bold text-slate-900 uppercase tracking-tight">หจก. ปกรณ์ เทคนิคอล ซัพพลาย</h2>
-                <p class="text-xs text-slate-600">PAKORN TECHNICAL SUPPLY LTD., PART. · ENGINEERING DIVISION</p>
-                <p class="text-[11px] text-slate-500 mt-0.5">เอกสารส่งมอบงาน / ตรวจรับงานและยืนยันการปฏิบัติงาน (Work Handover Sheet)</p>
+              <div class="flex items-center gap-3.5">
+                <img src="logo.jpg" alt="PTS Logo" class="w-12 h-12 sm:w-14 sm:h-14 rounded-xl object-contain border border-slate-200 p-1 shrink-0 bg-white shadow-sm">
+                <div>
+                  <h2 class="text-lg sm:text-xl font-bold text-slate-900 uppercase tracking-tight">หจก. ปกรณ์ เทคนิคอล ซัพพลาย</h2>
+                  <p class="text-xs text-slate-600 font-medium">PAKORN TECHNICAL SUPPLY LTD., PART. · ENGINEERING DIVISION</p>
+                  <p class="text-[11px] text-slate-500 mt-0.5">เอกสารส่งมอบงาน / ตรวจรับงานและยืนยันการปฏิบัติงาน (Work Handover Sheet)</p>
+                </div>
               </div>
               <div class="text-left sm:text-right bg-blue-50 p-2.5 sm:p-3 rounded-xl border border-blue-200">
                 <p class="text-xs font-bold text-blue-950">เลขที่ใบงาน: <span id="formSheetJobId" class="font-mono text-blue-800">PTS-ENG-000</span></p>
@@ -1244,6 +1247,6 @@
   </div>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=3.1"></script>
+  <script src="script.js?v=3.2"></script>
 </body>
 </html>
