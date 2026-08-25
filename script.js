@@ -428,6 +428,7 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     // INITIALIZATION (EMBEDDED LIVE MODE DIRECT)
     window.addEventListener('DOMContentLoaded', () => {
+      setTimeout(hideSplashScreen, 1500);
       loadState();
       startAutoRefresh();
     });
@@ -1314,7 +1315,17 @@ const MAX_PHOTOS_PER_TASK = 100;
     function handleStatusFilterChange() {
       renderApp();
     }
+    function hideSplashScreen() {
+      const splash = document.getElementById('appSplashScreen');
+      if (splash) {
+        splash.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => { try { splash.remove(); } catch(e){} }, 600);
+      }
+    }
+    window.hideSplashScreen = hideSplashScreen;
+
     function renderApp() {
+      hideSplashScreen();
       const filtered = getFilteredTasks();
       updateMetrics();
       updateActiveFilterBadge();

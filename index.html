@@ -178,6 +178,16 @@
 
       <p class="text-[11px] text-slate-400 font-mono tracking-wider pt-1" id="splashStatusText">กำลังเชื่อมต่อข้อมูล...</p>
     </div>
+    <script>
+      // Auto-hide Splash Screen failsafe (1.8s)
+      setTimeout(function() {
+        var splash = document.getElementById('appSplashScreen');
+        if (splash) {
+          splash.classList.add('opacity-0', 'pointer-events-none');
+          setTimeout(function() { splash.remove(); }, 600);
+        }
+      }, 1800);
+    </script>
   </div>
 
   <!-- TOP APP HEADER -->
@@ -1285,6 +1295,6 @@
   </div>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=3.3"></script>
+  <script src="script.js?v=3.4"></script>
 </body>
 </html>
