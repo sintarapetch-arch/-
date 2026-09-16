@@ -225,6 +225,11 @@
             <span id="statusText" class="hidden lg:inline text-slate-300">Google Sheets Live</span>
           </div>
 
+          <!-- Manage option lists (sub-departments / technicians / customers) -->
+          <button onclick="openOptionsModal()" class="p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 border border-slate-700 shadow-sm active:scale-95 touch-target" title="ตั้งค่าตัวเลือก: ฝ่ายย่อย / รายชื่อช่าง / ลูกค้า">
+            <i class="fa-solid fa-sliders text-slate-400"></i>
+          </button>
+
           <!-- Refresh Data Button -->
           <button onclick="fetchTasks({ fresh: true }).then(markActivity)" class="p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 border border-slate-700 shadow-sm active:scale-95 touch-target" title="รีเฟรชข้อมูล">
             <i class="fa-solid fa-arrows-rotate text-slate-400" id="refreshIcon"></i>
@@ -399,10 +404,7 @@
         <!-- Sub-department Filter Dropdown -->
         <select id="subDeptFilter" onchange="renderApp()" class="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-pts-800/30 focus:border-pts-800">
           <option value="ALL">ทุกฝ่ายย่อย (All Sub-Depts)</option>
-          <option value="งานโครงการ">1. งานโครงการ (Project Execution)</option>
-          <option value="PM Fire Pump">2. PM Fire Pump</option>
-          <option value="PM Fire Alarm">3. PM Fire Alarm</option>
-          <option value="งานซ่อมบำรุง">4. งานซ่อมบำรุง (Maintenance)</option>
+          <!-- filled by renderOptionLists() from App_Settings + values in use -->
         </select>
 
         <!-- Priority Filter -->
@@ -511,29 +513,41 @@
             <input type="text" id="newJobId" class="w-full px-3.5 py-2.5 bg-slate-100 border border-slate-300 rounded-xl font-mono text-sm text-slate-700" readonly>
           </div>
 
-          <!-- Sub Department -->
+          <!-- Sub Department (options are managed in-app, see openOptionsModal) -->
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">ฝ่ายย่อย (Sub-Department) *</label>
-            <select id="newSubDept" required class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-pts-800">
-              <option value="งานโครงการ">1. งานโครงการ (Project Execution)</option>
-              <option value="PM Fire Pump">2. PM Fire Pump Systems</option>
-              <option value="PM Fire Alarm">3. PM Fire Alarm Systems</option>
-              <option value="งานซ่อมบำรุง">4. งานซ่อมบำรุง (Maintenance & Repair)</option>
+            <label class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+              <span>ฝ่ายย่อย (Sub-Department) *</span>
+              <button type="button" onclick="openOptionsModal('sub_departments')" class="text-[10px] font-semibold text-pts-800 hover:underline" title="เพิ่ม/ลบตัวเลือกฝ่ายย่อย"><i class="fa-solid fa-gear mr-0.5"></i>จัดการ</button>
+            </label>
+            <select id="newSubDept" required onfocus="this.dataset.prev = this.value" onchange="handleSubDeptChange(this)" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-pts-800">
+              <option value="งานโครงการ">งานโครงการ</option>
             </select>
           </div>
         </div>
 
         <!-- Project Name / Site -->
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">ชื่อไซต์งาน / ลูกค้า (Project Site Name) *</label>
-          <input type="text" id="newProjectName" required placeholder="เช่น บริษัท อุตสาหกรรมไทย จำกัด (นิคมบางปู)" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          <label class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+            <span>ชื่อไซต์งาน / ลูกค้า (Project Site Name) *</span>
+            <button type="button" onclick="openCustomerPicker('new')" class="px-2 py-0.5 rounded-md bg-pts-50 border border-pts-200 text-[10px] font-bold text-pts-800 hover:bg-pts-100 transition" title="เลือกลูกค้าจากใบงานเก่า ระบบจะเติมสถานที่ เบอร์ แผนที่ ให้อัตโนมัติ">
+              <i class="fa-solid fa-address-book mr-1"></i>ดึงข้อมูลลูกค้าเก่า
+            </button>
+          </label>
+          <!-- Dropdown of known customers; the last choice reveals the text box for a brand-new name -->
+          <select id="newProjectNameSelect" required onchange="handleComboChange('newProjectName')" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-pts-800"></select>
+          <input type="text" id="newProjectName" list="customerOptions" autocomplete="off" placeholder="พิมพ์ชื่อไซต์งาน / ลูกค้าใหม่ เช่น บริษัท อุตสาหกรรมไทย จำกัด (นิคมบางปู)" onchange="autofillFromCustomer('new', this.value)" class="hidden mt-2 w-full px-3.5 py-2.5 bg-amber-50 border border-amber-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          <p id="newAutofillHint" class="hidden mt-1 text-[11px] font-semibold text-emerald-700"></p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- Technician in Charge -->
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">หัวหน้าช่างผู้รับผิดชอบ *</label>
-            <input type="text" id="newTechnician" required placeholder="เช่น ช่างปกรณ์ / ช่างสมชาย" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+            <label class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+              <span>หัวหน้าช่างผู้รับผิดชอบ *</span>
+              <button type="button" onclick="openOptionsModal('technicians')" class="text-[10px] font-semibold text-pts-800 hover:underline" title="เพิ่ม/ลบรายชื่อช่าง"><i class="fa-solid fa-gear mr-0.5"></i>จัดการ</button>
+            </label>
+            <select id="newTechnicianSelect" required onchange="handleComboChange('newTechnician')" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-pts-800"></select>
+            <input type="text" id="newTechnician" list="technicianOptions" autocomplete="off" placeholder="พิมพ์ชื่อช่างใหม่ เช่น ช่างสมชาย" class="hidden mt-2 w-full px-3.5 py-2.5 bg-amber-50 border border-amber-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
           </div>
 
           <!-- Site Location -->
@@ -594,11 +608,15 @@
                 <span class="text-[11px] font-bold text-pts-800 bg-pts-50 px-2 py-0.5 rounded-md border border-pts-200" id="newPhotoCountBadge">(0 / 100 รูป)</span>
               </span>
               <label class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold cursor-pointer transition">
-                <i class="fa-solid fa-plus mr-1"></i> เพิ่มรูปภาพ
+                <i class="fa-solid fa-images mr-1"></i> เพิ่มรูปหลายรูป
                 <input type="file" accept="image/*" multiple onchange="handleFileSelect(event, 'new', 'photo')" class="hidden">
               </label>
             </div>
-            <div id="newPhotosGalleryContainer" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
+            <div id="newPhotosGalleryContainer" data-photo-drop="new" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200 transition"></div>
+            <p id="newPhotoPrepStatus" class="hidden text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5"></p>
+            <p class="text-[10px] text-slate-500 leading-snug">
+              <i class="fa-solid fa-circle-info mr-0.5"></i>เลือกได้หลายรูปพร้อมกันในครั้งเดียว (มือถือ: แตะเลือกทีละรูปในแกลเลอรีแล้วกดเสร็จ · คอม: กด Ctrl ค้างแล้วคลิก หรือลากรูปมาวาง / Ctrl+V) — เพิ่มได้เรื่อยๆ แล้วกดบันทึกครั้งเดียว รูปทั้งหมดจะถูกอัปโหลดพร้อมกัน
+            </p>
           </div>
 
           <!-- Section 2: Document Files Gallery -->
@@ -766,23 +784,34 @@
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
           
           <div class="md:col-span-2">
-            <label class="block text-xs font-bold text-slate-700 mb-1">ชื่อไซต์งาน / ลูกค้า *</label>
-            <input type="text" id="editProjectName" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-semibold text-slate-800">
+            <label class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+              <span>ชื่อไซต์งาน / ลูกค้า *</span>
+              <button type="button" onclick="openCustomerPicker('edit')" class="px-2 py-0.5 rounded-md bg-pts-50 border border-pts-200 text-[10px] font-bold text-pts-800 hover:bg-pts-100 transition" title="เลือกลูกค้าจากใบงานเก่า ระบบจะเติมสถานที่ เบอร์ แผนที่ ให้อัตโนมัติ">
+                <i class="fa-solid fa-address-book mr-1"></i>ดึงข้อมูลลูกค้าเก่า
+              </button>
+            </label>
+            <select id="editProjectNameSelect" onchange="handleComboChange('editProjectName')" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-semibold text-slate-800"></select>
+            <input type="text" id="editProjectName" list="customerOptions" autocomplete="off" placeholder="พิมพ์ชื่อไซต์งาน / ลูกค้าใหม่" onchange="autofillFromCustomer('edit', this.value)" class="hidden mt-2 w-full px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl text-sm font-semibold text-slate-800">
+            <p id="editAutofillHint" class="hidden mt-1 text-[11px] font-semibold text-emerald-700"></p>
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">ฝ่ายย่อย *</label>
-            <select id="editSubDept" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium">
-              <option value="งานโครงการ">งานโครงการ (Project Execution)</option>
-              <option value="PM Fire Pump">PM Fire Pump</option>
-              <option value="PM Fire Alarm">PM Fire Alarm</option>
-              <option value="งานซ่อมบำรุง">งานซ่อมบำรุง (Maintenance)</option>
+            <label class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+              <span>ฝ่ายย่อย *</span>
+              <button type="button" onclick="openOptionsModal('sub_departments')" class="text-[10px] font-semibold text-pts-800 hover:underline" title="เพิ่ม/ลบตัวเลือกฝ่ายย่อย"><i class="fa-solid fa-gear mr-0.5"></i>จัดการ</button>
+            </label>
+            <select id="editSubDept" onfocus="this.dataset.prev = this.value" onchange="handleSubDeptChange(this)" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium">
+              <option value="งานโครงการ">งานโครงการ</option>
             </select>
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">หัวหน้าช่างผู้รับผิดชอบ</label>
-            <input type="text" id="editTechnician" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm text-slate-800">
+            <label class="flex items-center justify-between text-xs font-bold text-slate-700 mb-1">
+              <span>หัวหน้าช่างผู้รับผิดชอบ</span>
+              <button type="button" onclick="openOptionsModal('technicians')" class="text-[10px] font-semibold text-pts-800 hover:underline" title="เพิ่ม/ลบรายชื่อช่าง"><i class="fa-solid fa-gear mr-0.5"></i>จัดการ</button>
+            </label>
+            <select id="editTechnicianSelect" onchange="handleComboChange('editTechnician')" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm text-slate-800"></select>
+            <input type="text" id="editTechnician" list="technicianOptions" autocomplete="off" placeholder="พิมพ์ชื่อช่างใหม่" class="hidden mt-2 w-full px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl text-sm text-slate-800">
           </div>
 
           <div>
@@ -846,11 +875,15 @@
                 <span class="text-[11px] font-bold text-pts-800 bg-pts-50 px-2 py-0.5 rounded-md border border-pts-200" id="editPhotoCountBadge">(0 / 100 รูป)</span>
               </span>
               <label class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold cursor-pointer transition">
-                <i class="fa-solid fa-plus mr-1"></i> เพิ่มรูปภาพ
+                <i class="fa-solid fa-images mr-1"></i> เพิ่มรูปหลายรูป
                 <input type="file" accept="image/*" multiple onchange="handleFileSelect(event, 'edit', 'photo')" class="hidden">
               </label>
             </div>
-            <div id="editPhotosGalleryContainer" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200"></div>
+            <div id="editPhotosGalleryContainer" data-photo-drop="edit" class="flex flex-wrap gap-2.5 min-h-[50px] max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200 transition"></div>
+            <p id="editPhotoPrepStatus" class="hidden text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5"></p>
+            <p class="text-[10px] text-slate-500 leading-snug">
+              <i class="fa-solid fa-circle-info mr-0.5"></i>เลือกได้หลายรูปพร้อมกันในครั้งเดียว (มือถือ: แตะเลือกทีละรูปในแกลเลอรีแล้วกดเสร็จ · คอม: กด Ctrl ค้างแล้วคลิก หรือลากรูปมาวาง / Ctrl+V) — เพิ่มได้เรื่อยๆ แล้วกดบันทึกครั้งเดียว รูปทั้งหมดจะถูกอัปโหลดพร้อมกัน
+            </p>
           </div>
 
           <!-- Section 2: Document Files Gallery -->
@@ -1061,6 +1094,9 @@
         </button>
       </div>
 
+    </div>
+  </div>
+
   <!-- MODAL 5: DELIVERY DOCUMENT & WORK HANDOVER MODAL -->
   <div id="deliveryModal" class="fixed inset-0 z-50 hidden bg-slate-900/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
     <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all my-0 sm:my-6 flex flex-col max-h-[94dvh] sm:max-h-[94vh]">
@@ -1086,7 +1122,7 @@
             <i class="fa-solid fa-print"></i> พิมพ์เอกสาร
           </button>
           <label id="deliveryHeaderUploadBtn" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer shadow-sm">
-            <i class="fa-solid fa-cloud-arrow-up"></i> + แนบไฟล์เพิ่ม
+            <i class="fa-solid fa-folder-plus"></i> + เลือกไฟล์เพิ่ม
             <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple onchange="handleDeliveryModalUpload(event)" class="hidden">
           </label>
           <button type="button" onclick="closeDeliveryModal()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition">
@@ -1208,9 +1244,28 @@
               <p class="text-[11px] text-slate-500">รองรับไฟล์ PDF, Word, Excel และรูปภาพสแกนเอกสาร</p>
             </div>
             <label class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
-              <i class="fa-solid fa-cloud-arrow-up"></i> + แนบไฟล์ลงระบบ
+              <i class="fa-solid fa-folder-plus"></i> + เลือกไฟล์ (หลายไฟล์)
               <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple onchange="handleDeliveryModalUpload(event)" class="hidden">
             </label>
+          </div>
+
+          <!-- Files picked but not yet saved: pile them up here, then one Save sends all -->
+          <div id="deliveryPendingSection" class="hidden p-3.5 bg-amber-50 rounded-2xl border border-amber-300 space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 class="text-xs font-bold text-amber-900"><i class="fa-solid fa-clock mr-1"></i>ไฟล์ที่เลือกไว้ รอบันทึก <span id="deliveryPendingCount" class="font-mono">(0)</span></h4>
+                <p class="text-[11px] text-amber-800">เลือกเพิ่มได้เรื่อยๆ แล้วกด "บันทึกทั้งหมด" ครั้งเดียว ไฟล์ทั้งหมดจะถูกอัปโหลดพร้อมกัน</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="clearDeliveryPending()" class="px-3 py-2 rounded-xl border border-amber-300 bg-white hover:bg-amber-100 text-amber-900 text-xs font-bold transition">
+                  ล้างรายการ
+                </button>
+                <button type="button" id="deliverySavePendingBtn" onclick="saveDeliveryPendingFiles()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-1.5 active:scale-95">
+                  <i class="fa-solid fa-cloud-arrow-up"></i> บันทึกทั้งหมด
+                </button>
+              </div>
+            </div>
+            <div id="deliveryPendingList" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
           </div>
 
           <div id="deliveryAttachedFilesList" class="grid grid-cols-1 sm:grid-cols-2 gap-3 min-h-[120px]"></div>
@@ -1225,6 +1280,9 @@
         </button>
 
         <div class="flex items-center gap-2">
+          <button id="deliveryFooterSaveBtn" type="button" onclick="saveDeliveryPendingFiles()" class="hidden px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition items-center gap-1.5">
+            <i class="fa-solid fa-cloud-arrow-up"></i> บันทึกไฟล์ทั้งหมด <span id="deliveryFooterSaveCount" class="font-mono">(0)</span>
+          </button>
           <button id="deliveryFooterPrintBtn" type="button" onclick="printDeliverySlip()" class="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition flex items-center gap-1.5">
             <i class="fa-solid fa-print"></i> พิมพ์ใบส่งมอบงาน
           </button>
@@ -1299,7 +1357,64 @@
     </div>
   </div>
 
+  <!-- Autocomplete sources for free-text fields (filled by renderOptionLists) -->
+  <datalist id="technicianOptions"></datalist>
+  <datalist id="customerOptions"></datalist>
+
+  <!-- MODAL 7: MANAGE OPTION LISTS (ฝ่ายย่อย / รายชื่อช่าง / ลูกค้า) -->
+  <div id="optionsModal" class="fixed inset-0 z-[60] hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
+      <div class="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between border-b border-slate-800 shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-10 h-10 rounded-xl bg-pts-800 text-white flex items-center justify-center text-lg shrink-0"><i class="fa-solid fa-sliders"></i></span>
+          <div class="min-w-0">
+            <h3 class="text-base sm:text-lg font-bold">ตั้งค่าตัวเลือก (Manage Options)</h3>
+            <p class="text-xs text-slate-400 truncate">เพิ่ม/ลบ ฝ่ายย่อย · รายชื่อช่าง · ลูกค้า ได้เอง ไม่ต้องแก้โค้ด</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeOptionsModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+
+      <div class="px-4 sm:px-6 pt-3 shrink-0">
+        <p id="optionsSourceNote" class="text-[11px] rounded-xl px-3 py-2 border bg-emerald-50 border-emerald-200 text-emerald-800"></p>
+      </div>
+
+      <div class="p-4 sm:p-6 space-y-5 flex-1 overflow-y-auto scroll-body" id="optionsSections"></div>
+
+      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex items-center justify-between gap-2 safe-bottom shrink-0">
+        <p class="text-[11px] text-slate-500 hidden sm:block">ตัวเลือกที่มีใบงานใช้อยู่จะยังแสดงในรายการจนกว่าใบงานนั้นจะเปลี่ยนค่า</p>
+        <div class="flex items-center gap-2 ml-auto">
+          <button type="button" onclick="closeOptionsModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-200 text-slate-700 text-xs font-bold transition">ยกเลิก</button>
+          <button type="button" id="optionsSaveBtn" onclick="saveOptionsModal()" class="px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md transition active:scale-95"><i class="fa-solid fa-floppy-disk mr-1.5"></i>บันทึกตัวเลือก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 8: CUSTOMER PICKER - pull site, phone, map and technician from a previous job -->
+  <div id="customerPickerModal" class="fixed inset-0 z-[60] hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[88vh]">
+      <div class="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between border-b border-slate-800 shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-10 h-10 rounded-xl bg-pts-800 text-white flex items-center justify-center text-lg shrink-0"><i class="fa-solid fa-address-book"></i></span>
+          <div class="min-w-0">
+            <h3 class="text-base sm:text-lg font-bold">ดึงข้อมูลลูกค้าเก่า</h3>
+            <p class="text-xs text-slate-400 truncate">เลือกลูกค้า → เติมสถานที่ เบอร์ติดต่อ แผนที่ ช่าง และฝ่ายย่อยจากใบงานล่าสุดให้ทันที</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeCustomerPicker()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <div class="p-3 sm:p-4 border-b border-slate-200 shrink-0">
+        <div class="relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+          <input type="text" id="customerPickerSearch" oninput="renderCustomerPicker()" placeholder="ค้นหาชื่อลูกค้า สถานที่ เบอร์ ช่าง..." class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800/30 focus:border-pts-800">
+        </div>
+      </div>
+      <div id="customerPickerList" class="p-3 sm:p-4 space-y-2 flex-1 overflow-y-auto scroll-body bg-slate-50/60"></div>
+    </div>
+  </div>
+
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=3.5"></script>
+  <script src="script.js?v=3.7"></script>
 </body>
 </html>

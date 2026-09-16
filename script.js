@@ -423,7 +423,9 @@ const MAX_PHOTOS_PER_TASK = 100;
       tempEditDocs: [],
       tempEditVideos: [],
       tempEditDelivery: [],
-      currentDeliveryJobId: null
+      currentDeliveryJobId: null,
+      deliveryPending: [],
+      deliveryPendingJobId: null
     };
 
     // INITIALIZATION (EMBEDDED LIVE MODE DIRECT)
@@ -431,6 +433,9 @@ const MAX_PHOTOS_PER_TASK = 100;
       setTimeout(hideSplashScreen, 1500);
       loadState();
       startAutoRefresh();
+      initPhotoDropZones();
+      renderOptionLists();   // defaults immediately, server lists once fetched
+      fetchOptions();
     });
 
     function loadState() {
@@ -660,6 +665,7 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       state.lastDataSignature = signature;
       state.tasks = incoming;
+      renderOptionLists();   // dropdowns also list every value jobs actually use
       renderApp();
       refreshOpenDetailModal();
 
@@ -943,6 +949,11 @@ const MAX_PHOTOS_PER_TASK = 100;
      * every other column exactly as it found it.
      */
     const UPLOAD_BATCH_CHARS = 4000000;   // ~4 MB of Base64 per request
+    // Drive takes roughly a second per file on the server side. Capping the
+    // file count keeps every request comfortably inside API_SAVE_TIMEOUT_MS
+    // even when someone stages 60 small photos at once.
+    const UPLOAD_BATCH_FILES = 12;
+    const UPLOAD_BATCH_RETRIES = 2;       // transient timeouts / network blips are retried silently
 
     function showUploadProgress(title, filename, percent, bytesText) {
       const modal = document.getElementById('uploadProgressModal');
@@ -1022,14 +1033,17 @@ const MAX_PHOTOS_PER_TASK = 100;
         let chars = 0;
         let batchBytes = 0;
         // Always take at least one, even if that single file is over the budget
-        while (queue.length > 0 && (batch.length === 0 || chars + queue[0].chars <= UPLOAD_BATCH_CHARS)) {
+        while (queue.length > 0 && (batch.length === 0 ||
+               (batch.length < UPLOAD_BATCH_FILES && chars + queue[0].chars <= UPLOAD_BATCH_CHARS))) {
           const next = queue.shift();
           chars += next.chars;
           batchBytes += next.approxBytes;
           batch.push(next);
         }
 
-        const currentFileName = batch.map(b => b.name).join(', ');
+        const currentFileName = batch.length > 3
+          ? `${batch.length} ไฟล์ (${batch[0].name} ... ${batch[batch.length - 1].name})`
+          : batch.map(b => b.name).join(', ');
         const percent = Math.min(95, (uploadedBytes / Math.max(1, totalBytesToUpload)) * 100);
         showUploadProgress(`กำลังส่งข้อมูล (${uploadedCount + batch.length}/${fileCount} ไฟล์)...`, currentFileName, percent, `${formatBytes(uploadedBytes)} / ${formatBytes(totalBytesToUpload)}`);
 
@@ -1039,7 +1053,23 @@ const MAX_PHOTOS_PER_TASK = 100;
           data[field] = JSON.stringify(settled[field].concat(additions));
         });
 
-        const { json, error } = await apiPost({ action: 'UPDATE', data: data });
+        // The payload always re-sends what is already settled, so re-posting the
+        // same batch after a timeout can never duplicate a file on the sheet.
+        let attempt = 0;
+        let json = null;
+        let error = null;
+        while (attempt <= UPLOAD_BATCH_RETRIES) {
+          if (attempt > 0) {
+            showUploadProgress(`เชื่อมต่อขัดข้อง กำลังลองส่งใหม่ (ครั้งที่ ${attempt}/${UPLOAD_BATCH_RETRIES})...`, currentFileName, percent, `${formatBytes(uploadedBytes)} / ${formatBytes(totalBytesToUpload)}`);
+            await delay(1500 * attempt);
+          }
+          const res = await apiPost({ action: 'UPDATE', data: data });
+          json = res.json;
+          error = res.error;
+          const transient = !json && (error === 'timeout' || error === 'network');
+          if (!transient) break;
+          attempt++;
+        }
 
         if (!json || json.status !== 'success') {
           hideUploadProgress();
@@ -1715,30 +1745,7 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (usable.length === 0) return;
 
       if (fileCategory === 'photo') {
-        const currentPhotos = mode === 'new' ? state.tempNewPhotos : state.tempEditPhotos;
-        const availableSlots = MAX_PHOTOS_PER_TASK - currentPhotos.length;
-
-        if (availableSlots <= 0) {
-          alert(`ใบงานนี้แนบรูปภาพครบโควต้าสูงสุดแล้ว (${MAX_PHOTOS_PER_TASK} รูป)`);
-          return;
-        }
-
-        let filesToProcess = usable;
-        if (filesToProcess.length > availableSlots) {
-          alert(`คุณเลือกรูปภาพเกินโควต้า ระบบจะเพิ่มรูปให้เพียง ${availableSlots} รูปแรกเท่านั้น`);
-          filesToProcess = filesToProcess.slice(0, availableSlots);
-        }
-
-        // Wait for all of them: compression finishes out of order, so pushing as
-        // each one lands used to shuffle the photos. Promise.all keeps the order
-        // the user picked, and a null means that file could not be decoded.
-        const results = await Promise.all(filesToProcess.map(f => compressImage(f, PHOTO_MAX_WIDTH, PHOTO_QUALITY)));
-        const target = mode === 'new' ? state.tempNewPhotos : state.tempEditPhotos;
-        results.forEach(dataUrl => { if (dataUrl) target.push(dataUrl); });
-        renderPhotosPreview(mode);
-
-        const failed = results.filter(r => !r).length;
-        if (failed > 0) alert(`อ่านไฟล์รูปภาพไม่สำเร็จ ${failed} ไฟล์ (ไฟล์อาจเสียหายหรือเป็นชนิดที่เบราว์เซอร์ไม่รองรับ เช่น HEIC)`);
+        await addPhotosToStaging(mode, usable);
         return;
       }
 
@@ -1781,6 +1788,147 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       const failed = results.filter(r => !r).length;
       if (failed > 0) alert(`อ่านไฟล์ไม่สำเร็จ ${failed} ไฟล์`);
+    }
+
+    /* -----------------------------------------------------------------------
+     * BULK PHOTO STAGING
+     *
+     * Photos are never uploaded one by one: every picker / drop / paste adds to
+     * the same staging list, and ONE press of Save sends the whole list.
+     *
+     * Decoding is done a few files at a time. Decoding 30 full-size phone photos
+     * at once (the old Promise.all) could exhaust memory on a phone - Safari
+     * then reloads the page and every staged photo is gone, which is exactly
+     * what pushed users into adding a single photo per save. Small chunks keep
+     * memory flat, preserve the order the user picked, and let the gallery fill
+     * in as it goes.
+     * --------------------------------------------------------------------- */
+    const PHOTO_PREP_CHUNK = 3;
+    const photoPrepInProgress = { new: 0, edit: 0 };
+
+    function photoPrepBusy(mode) {
+      return (photoPrepInProgress[mode] || 0) > 0;
+    }
+
+    function setPhotoPrepStatus(mode, text) {
+      const el = document.getElementById(mode === 'new' ? 'newPhotoPrepStatus' : 'editPhotoPrepStatus');
+      if (!el) return;
+      if (!text) {
+        el.classList.add('hidden');
+        el.textContent = '';
+        return;
+      }
+      el.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin mr-1"></i>${esc(text)}`;
+      el.classList.remove('hidden');
+    }
+
+    // The save button is locked while photos are still decoding - saving early
+    // would silently drop everything not yet in the list.
+    function lockSaveWhilePreparing(mode, locked) {
+      const btn = document.getElementById(mode === 'new' ? 'createSubmitBtn' : 'editSaveBtn');
+      if (!btn) return;
+      if (locked) {
+        if (!btn.dataset.prepLabel) btn.dataset.prepLabel = btn.innerHTML;
+        btn.disabled = true;
+        btn.classList.add('opacity-60', 'cursor-wait');
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i>กำลังเตรียมรูป...';
+      } else {
+        btn.disabled = false;
+        btn.classList.remove('opacity-60', 'cursor-wait');
+        if (btn.dataset.prepLabel) btn.innerHTML = btn.dataset.prepLabel;
+        delete btn.dataset.prepLabel;
+      }
+    }
+
+    async function addPhotosToStaging(mode, files) {
+      const images = (files || []).filter(f => f && (/^image\//i.test(f.type || '') || /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(f.name || '')));
+      if (images.length === 0) return;
+
+      const target = mode === 'new' ? state.tempNewPhotos : state.tempEditPhotos;
+      const availableSlots = MAX_PHOTOS_PER_TASK - target.length - (photoPrepInProgress[mode] || 0);
+
+      if (availableSlots <= 0) {
+        alert(`ใบงานนี้แนบรูปภาพครบโควต้าสูงสุดแล้ว (${MAX_PHOTOS_PER_TASK} รูป)`);
+        return;
+      }
+
+      let queue = images;
+      if (queue.length > availableSlots) {
+        alert(`คุณเลือกรูปภาพเกินโควต้า ระบบจะเพิ่มรูปให้เพียง ${availableSlots} รูปแรกเท่านั้น`);
+        queue = queue.slice(0, availableSlots);
+      }
+
+      const total = queue.length;
+      photoPrepInProgress[mode] = (photoPrepInProgress[mode] || 0) + total;
+      lockSaveWhilePreparing(mode, true);
+
+      let done = 0;
+      let failed = 0;
+      try {
+        for (let i = 0; i < queue.length; i += PHOTO_PREP_CHUNK) {
+          const chunk = queue.slice(i, i + PHOTO_PREP_CHUNK);
+          setPhotoPrepStatus(mode, `กำลังเตรียมรูป ${Math.min(done + chunk.length, total)} / ${total} รูป... (ยังเพิ่มรูปต่อได้ แล้วค่อยกดบันทึกครั้งเดียว)`);
+
+          // Promise.all inside a chunk keeps the picked order; chunks are sequential.
+          const results = await Promise.all(chunk.map(f => compressImage(f, PHOTO_MAX_WIDTH, PHOTO_QUALITY)));
+          results.forEach(dataUrl => {
+            if (dataUrl) target.push(dataUrl);
+            else failed++;
+          });
+          done += chunk.length;
+          photoPrepInProgress[mode] -= chunk.length;
+          renderPhotosPreview(mode);
+        }
+      } finally {
+        photoPrepInProgress[mode] = Math.max(0, photoPrepInProgress[mode] - (total - done));
+        if (!photoPrepBusy(mode)) {
+          setPhotoPrepStatus(mode, '');
+          lockSaveWhilePreparing(mode, false);
+        }
+      }
+
+      if (failed > 0) {
+        alert(`อ่านไฟล์รูปภาพไม่สำเร็จ ${failed} ไฟล์ (ไฟล์อาจเสียหายหรือเป็นชนิดที่เบราว์เซอร์ไม่รองรับ เช่น HEIC)\n\nเพิ่มสำเร็จ ${total - failed} รูป`);
+      }
+    }
+
+    // Which photo staging list a drop / paste should land in
+    function activePhotoMode() {
+      const createOpen = document.getElementById('createModal') && !document.getElementById('createModal').classList.contains('hidden');
+      if (createOpen) return 'new';
+      const editOpen = document.getElementById('editModal') && !document.getElementById('editModal').classList.contains('hidden');
+      if (editOpen) return 'edit';
+      return null;
+    }
+
+    function initPhotoDropZones() {
+      document.querySelectorAll('[data-photo-drop]').forEach(zone => {
+        const mode = zone.dataset.photoDrop;
+        const highlight = on => {
+          zone.classList.toggle('ring-2', on);
+          zone.classList.toggle('ring-pts-800', on);
+          zone.classList.toggle('bg-pts-50', on);
+        };
+        zone.addEventListener('dragover', e => { e.preventDefault(); highlight(true); });
+        zone.addEventListener('dragleave', () => highlight(false));
+        zone.addEventListener('drop', e => {
+          e.preventDefault();
+          highlight(false);
+          const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+          if (files.length) addPhotosToStaging(mode, files);
+        });
+      });
+
+      // Ctrl+V a screenshot or a copied image straight into the open dialog
+      document.addEventListener('paste', e => {
+        const mode = activePhotoMode();
+        if (!mode) return;
+        const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
+        const files = items.filter(it => it.kind === 'file' && /^image\//i.test(it.type)).map(it => it.getAsFile()).filter(Boolean);
+        if (files.length === 0) return;
+        e.preventDefault();
+        addPhotosToStaging(mode, files);
+      });
     }
 
     function readFileAsDataUrl(file) {
@@ -2389,6 +2537,8 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       setVal('newSiteContactPhone', '');
       setVal('newSiteMapUrl', '');
+      renderOptionLists();
+      showAutofillHint('new', '');
 
       renderPhotosPreview('new');
       renderDocsPreview('new');
@@ -2411,6 +2561,19 @@ const MAX_PHOTOS_PER_TASK = 100;
         const el = document.getElementById(id);
         return el ? el.value : def;
       };
+
+      if (photoPrepBusy('new')) {
+        alert("ระบบกำลังเตรียมรูปภาพที่เลือกไว้ กรุณารอสักครู่แล้วกดบันทึกอีกครั้ง (รูปทั้งหมดจะถูกบันทึกพร้อมกันในครั้งเดียว)");
+        return;
+      }
+      if (getVal('newSubDept') === ADD_NEW_VALUE) {
+        alert("กรุณาเลือกฝ่ายย่อยก่อนบันทึก");
+        return;
+      }
+      // The text boxes behind the dropdowns may be hidden, so the browser's own
+      // "required" check cannot reach them - validate here instead.
+      if (!comboValueOrWarn('newProjectName', 'ชื่อไซต์งาน / ลูกค้า')) return;
+      if (!comboValueOrWarn('newTechnician', 'หัวหน้าช่างผู้รับผิดชอบ')) return;
 
       const jobId = getVal('newJobId').trim();
       if (!jobId) {
@@ -2480,8 +2643,12 @@ const MAX_PHOTOS_PER_TASK = 100;
       setText('editProjectTitle', task.Project_Name);
       setText('editSubDeptSubtitle', task.Sub_Department);
 
+      renderOptionLists();
+      showAutofillHint('edit', '');
       setVal('editProjectName', task.Project_Name);
       setVal('editTechnician', task.Technician_In_Charge);
+      syncCombo('editProjectName');
+      syncCombo('editTechnician');
       setVal('editSubDept', task.Sub_Department || 'งานโครงการ');
       setVal('editPriority', task.Priority || 'Medium');
       setVal('editSiteLocation', task.Site_Location);
@@ -2689,11 +2856,19 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     async function saveTaskEdits() {
       if (!state.currentEditingTask) return;
+      if (photoPrepBusy('edit')) {
+        alert("ระบบกำลังเตรียมรูปภาพที่เลือกไว้ กรุณารอสักครู่แล้วกดบันทึกอีกครั้ง (รูปทั้งหมดจะถูกบันทึกพร้อมกันในครั้งเดียว)");
+        return;
+      }
 
       const getVal = (id, def = '') => {
         const el = document.getElementById(id);
         return el ? el.value : def;
       };
+      if (getVal('editSubDept') === ADD_NEW_VALUE) {
+        alert("กรุณาเลือกฝ่ายย่อยก่อนบันทึก");
+        return;
+      }
 
       state.currentEditingTask.Project_Name = getVal('editProjectName');
       state.currentEditingTask.Technician_In_Charge = getVal('editTechnician');
@@ -2768,6 +2943,11 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (!task) return;
 
       state.currentDeliveryJobId = jobId;
+      // Files staged for a different job never carry over
+      if (state.deliveryPendingJobId !== jobId) {
+        state.deliveryPending = [];
+        state.deliveryPendingJobId = jobId;
+      }
 
       document.getElementById('deliveryJobIdBadge').textContent = task.Job_ID;
       document.getElementById('deliverySubtitle').textContent = `${task.Project_Name || '-'} · ${task.Sub_Department || '-'}`;
@@ -2803,7 +2983,7 @@ const MAX_PHOTOS_PER_TASK = 100;
           <div class="col-span-full py-8 text-center text-slate-400 w-full bg-slate-50 rounded-xl border border-dashed border-slate-300">
             <i class="fa-solid fa-folder-open text-3xl text-slate-300 mb-2 block"></i>
             <p class="text-xs font-bold text-slate-700">ยังไม่มีไฟล์แนบใบส่งมอบงานที่บันทึกไว้ในระบบ</p>
-            <p class="text-[11px] text-slate-500 mt-1">สามารถกดปุ่ม <span class="font-semibold text-blue-700">+ แนบไฟล์ลงระบบ</span> ด้านบนเพื่อเลือกไฟล์ PDF, สแกน หรือรูปภาพมาบันทึกเก็บไว้ได้ทันที</p>
+            <p class="text-[11px] text-slate-500 mt-1">กดปุ่ม <span class="font-semibold text-blue-700">+ เลือกไฟล์ (หลายไฟล์)</span> ด้านบนเพื่อเลือก PDF, สแกน หรือรูปภาพได้หลายไฟล์พร้อมกัน แล้วกด <span class="font-semibold text-emerald-700">บันทึกทั้งหมด</span> ครั้งเดียว</p>
           </div>
         `;
       } else {
@@ -2852,7 +3032,10 @@ const MAX_PHOTOS_PER_TASK = 100;
         });
       }
 
-      if (deliveryFiles.length > 0) {
+      renderDeliveryPending();
+
+      const hasPending = (state.deliveryPending || []).length > 0;
+      if (deliveryFiles.length > 0 || hasPending) {
         switchDeliveryTab('files');
       } else {
         switchDeliveryTab('form');
@@ -2862,6 +3045,12 @@ const MAX_PHOTOS_PER_TASK = 100;
     }
 
     function closeDeliveryModal() {
+      const pending = (state.deliveryPending || []).length;
+      if (pending > 0 && !confirm(`มีไฟล์ที่เลือกไว้แต่ยังไม่ได้บันทึก ${pending} ไฟล์\n\nปิดหน้าต่างโดยไม่บันทึกใช่หรือไม่?`)) {
+        return;
+      }
+      state.deliveryPending = [];
+      state.deliveryPendingJobId = null;
       state.currentDeliveryJobId = null;
       document.getElementById('deliveryModal').classList.add('hidden');
     }
@@ -2959,21 +3148,35 @@ const MAX_PHOTOS_PER_TASK = 100;
     function editFromDeliveryModal() {
       const jobId = state.currentDeliveryJobId;
       closeDeliveryModal();
+      // The user may have chosen to keep the dialog open to save pending files
+      if (state.currentDeliveryJobId) return;
       if (jobId) openEditModal(jobId);
     }
 
+    /* -----------------------------------------------------------------------
+     * DELIVERY DOCS - STAGE, THEN SAVE ONCE
+     *
+     * Picking a file here used to fire a full save straight away, so attaching
+     * five scans meant five round-trips and five progress dialogs. Files now
+     * pile up in a pending list and one press of "บันทึกทั้งหมด" sends them all.
+     * --------------------------------------------------------------------- */
     async function handleDeliveryModalUpload(event) {
       const jobId = state.currentDeliveryJobId;
       if (!jobId) return;
-      const task = state.tasks.find(t => t.Job_ID === jobId);
-      if (!task) return;
 
       const input = event.target;
       const files = Array.from(input.files || []);
       input.value = '';
       if (files.length === 0) return;
 
-      const results = await Promise.all(files.map(file => readFileAsDataUrl(file).then(dataUrl => (
+      const tooBig = files.filter(f => f.size > MAX_ATTACHMENT_MB * 1024 * 1024);
+      if (tooBig.length > 0) {
+        alert(`ไฟล์ต่อไปนี้มีขนาดเกิน ${MAX_ATTACHMENT_MB} MB จึงไม่ถูกเพิ่ม:\n\n` + tooBig.map(f => `• ${f.name} (${formatBytes(f.size)})`).join('\n'));
+      }
+      const usableFiles = files.filter(f => f.size <= MAX_ATTACHMENT_MB * 1024 * 1024);
+      if (usableFiles.length === 0) return;
+
+      const results = await Promise.all(usableFiles.map(file => readFileAsDataUrl(file).then(dataUrl => (
         dataUrl ? {
           name: file.name,
           size: formatBytes(file.size),
@@ -2985,11 +3188,694 @@ const MAX_PHOTOS_PER_TASK = 100;
       const usable = results.filter(Boolean);
       if (usable.length === 0) return;
 
-      const current = getTaskAttachments(task, 'Delivery_Doc');
-      usable.forEach(item => current.push(item));
-      task.Delivery_Doc = JSON.stringify(current);
+      if (state.deliveryPendingJobId !== jobId) {
+        state.deliveryPending = [];
+        state.deliveryPendingJobId = jobId;
+      }
+      usable.forEach(item => state.deliveryPending.push(item));
+      renderDeliveryPending();
+      switchDeliveryTab('files');
+    }
 
-      await saveTaskToDb(task, false);
+    function renderDeliveryPending() {
+      const section = document.getElementById('deliveryPendingSection');
+      const list = document.getElementById('deliveryPendingList');
+      const count = document.getElementById('deliveryPendingCount');
+      const footerBtn = document.getElementById('deliveryFooterSaveBtn');
+      const footerCount = document.getElementById('deliveryFooterSaveCount');
+      if (!section || !list) return;
+
+      const pending = (state.deliveryPendingJobId === state.currentDeliveryJobId) ? (state.deliveryPending || []) : [];
+      if (count) count.textContent = `(${pending.length})`;
+      if (footerCount) footerCount.textContent = `(${pending.length})`;
+
+      if (pending.length === 0) {
+        section.classList.add('hidden');
+        if (footerBtn) { footerBtn.classList.add('hidden'); footerBtn.classList.remove('flex'); }
+        list.innerHTML = '';
+        return;
+      }
+
+      section.classList.remove('hidden');
+      if (footerBtn) { footerBtn.classList.remove('hidden'); footerBtn.classList.add('flex'); }
+
+      list.innerHTML = '';
+      pending.forEach((doc, idx) => {
+        const ext = getFileExt(doc.name || '');
+        let iconClass = "fa-file-lines text-slate-600";
+        if (ext.includes('pdf')) iconClass = "fa-file-pdf text-rose-600";
+        else if (ext.includes('doc')) iconClass = "fa-file-word text-blue-600";
+        else if (ext.includes('xls')) iconClass = "fa-file-excel text-emerald-600";
+        else if (/^(jpe?g|png|gif|webp)$/.test(ext)) iconClass = "fa-file-image text-emerald-600";
+
+        const row = document.createElement('div');
+        row.className = "flex items-center justify-between gap-2 p-2.5 rounded-xl border border-amber-200 bg-white text-xs";
+        row.innerHTML = `
+          <div class="flex items-center gap-2 min-w-0">
+            <i class="fa-solid ${iconClass} text-lg shrink-0"></i>
+            <div class="truncate">
+              <p class="font-bold text-slate-800 truncate" title="${esc(doc.name || '')}">${esc(doc.name || 'ไฟล์')}</p>
+              <p class="text-[10px] text-amber-700">${esc(doc.size || '')} · รอบันทึก</p>
+            </div>
+          </div>
+          <button type="button" onclick="removeDeliveryPending(${idx})" class="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition shrink-0" title="เอาออกจากรายการ">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    function removeDeliveryPending(index) {
+      if (!state.deliveryPending) return;
+      state.deliveryPending.splice(index, 1);
+      renderDeliveryPending();
+    }
+
+    function clearDeliveryPending() {
+      state.deliveryPending = [];
+      renderDeliveryPending();
+    }
+
+    async function saveDeliveryPendingFiles() {
+      const jobId = state.currentDeliveryJobId;
+      if (!jobId) return;
+      const task = state.tasks.find(t => t.Job_ID === jobId);
+      if (!task) return;
+
+      const pending = (state.deliveryPendingJobId === jobId) ? (state.deliveryPending || []) : [];
+      if (pending.length === 0) return;
+
+      // Work on a copy: if the save fails the task in memory must stay as it
+      // was, so pressing Save again cannot append the same files twice.
+      const current = getTaskAttachments(task, 'Delivery_Doc');
+      const draft = { ...task, Delivery_Doc: JSON.stringify(current.concat(pending)) };
+
+      const success = await withBusy('deliverySavePendingBtn', 'กำลังบันทึก...',
+        () => saveTaskToDb(draft, false));
+      if (!success) return;
+
+      state.deliveryPending = [];
       openDeliveryDocModal(jobId);
-      showSyncToast('บันทึกเอกสารใบส่งมอบงานเรียบร้อย');
+      showSyncToast(`บันทึกเอกสารใบส่งมอบงาน ${pending.length} ไฟล์เรียบร้อย`);
+    }
+
+    /* =======================================================================
+     * MANAGED OPTION LISTS  (ฝ่ายย่อย / รายชื่อช่าง / ลูกค้า)
+     *
+     * These used to be hard-coded <option> tags, so every new department meant
+     * a code change. They are now stored in the "App_Settings" tab of the same
+     * spreadsheet (via Code.gs SAVE_SETTINGS) and edited from the ⚙ dialog.
+     *
+     * Every dropdown shows:  configured list  ∪  values already used by jobs.
+     * The union means a value can never "disappear" from a job that uses it,
+     * and a freshly typed value shows up on every device once the job is saved.
+     *
+     * If the deployed Code.gs is older than this file the settings endpoint
+     * does not exist; the lists then fall back to localStorage on this device
+     * and the dialog says so.
+     * ===================================================================== */
+    const DEFAULT_SUB_DEPTS = ['งานโครงการ', 'PM Fire Pump', 'PM Fire Alarm', 'PM Generator', 'PM Fire Suppression', 'งานซ่อมบำรุง'];
+    const OPTION_GROUPS = {
+      sub_departments: { label: 'ฝ่ายย่อย (Sub-Department)', field: 'Sub_Department', icon: 'fa-sitemap', placeholder: 'เช่น PM Sprinkler, งานติดตั้ง', hint: 'แสดงเป็นตัวเลือกในฟอร์มเปิดงาน/แก้ไข และตัวกรองหน้าหลัก' },
+      technicians:     { label: 'หัวหน้าช่าง / ผู้รับผิดชอบ', field: 'Technician_In_Charge', icon: 'fa-helmet-safety', placeholder: 'เช่น ช่างสมชาย', hint: 'พิมพ์ในช่องหัวหน้าช่างแล้วระบบจะแนะนำชื่อให้' },
+      customers:       { label: 'ลูกค้า / ไซต์งาน', field: 'Project_Name', icon: 'fa-building', placeholder: 'เช่น บริษัท ... จำกัด (นิคม ...)', hint: 'พิมพ์ในช่องชื่อไซต์แล้วระบบจะแนะนำ และดึงสถานที่/เบอร์จากใบงานล่าสุดให้' }
+    };
+    const LOCAL_OPTIONS_KEY = 'pts_custom_options';
+    const ADD_NEW_VALUE = '__add_new__';
+
+    state.options = { sub_departments: [], technicians: [], customers: [] };
+    state.optionsSource = 'unknown';   // 'server' | 'local' | 'unknown'
+
+    function loadLocalOptions() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(LOCAL_OPTIONS_KEY) || '{}');
+        const out = {};
+        Object.keys(OPTION_GROUPS).forEach(k => { out[k] = Array.isArray(parsed[k]) ? parsed[k] : []; });
+        return out;
+      } catch (err) {
+        return { sub_departments: [], technicians: [], customers: [] };
+      }
+    }
+
+    function saveLocalOptions() {
+      try { localStorage.setItem(LOCAL_OPTIONS_KEY, JSON.stringify(state.options)); } catch (err) {}
+    }
+
+    function cleanOptionValue(v) {
+      return String(v || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    }
+
+    async function fetchOptions() {
+      if (state.dbMode === 'mock' || !state.apiUrl) {
+        state.options = loadLocalOptions();
+        state.optionsSource = 'local';
+        renderOptionLists();
+        return;
+      }
+      const { json } = await apiGetDetailed({ settings: '1' });
+      if (json && json.status === 'success' && json.settings && typeof json.settings === 'object') {
+        Object.keys(OPTION_GROUPS).forEach(k => {
+          state.options[k] = Array.isArray(json.settings[k]) ? json.settings[k].map(cleanOptionValue).filter(Boolean) : [];
+        });
+        state.optionsSource = 'server';
+      } else {
+        // Old Code.gs answers the plain task list instead - keep working locally
+        state.options = loadLocalOptions();
+        state.optionsSource = 'local';
+      }
+      renderOptionLists();
+    }
+
+    // Distinct values a field currently holds across all jobs, with usage counts
+    function valuesInUse(field) {
+      const counts = {};
+      (state.tasks || []).forEach(t => {
+        const v = cleanOptionValue(t[field]);
+        if (v) counts[v] = (counts[v] || 0) + 1;
+      });
+      return counts;
+    }
+
+    // Configured list first (in the order the team chose), then anything jobs
+    // still use that is not on the list, alphabetically.
+    function getOptionList(key) {
+      const group = OPTION_GROUPS[key];
+      const configured = (state.options[key] || []).slice();
+      const base = configured.length > 0 ? configured : (key === 'sub_departments' ? DEFAULT_SUB_DEPTS.slice() : []);
+      const seen = new Set(base);
+      const extras = Object.keys(valuesInUse(group.field)).filter(v => !seen.has(v)).sort((a, b) => a.localeCompare(b, 'th'));
+      return base.concat(extras);
+    }
+
+    function fillSelect(selectEl, values, keepValue, options) {
+      if (!selectEl) return;
+      options = options || {};
+      const current = keepValue !== undefined ? keepValue : selectEl.value;
+      selectEl.innerHTML = '';
+      if (options.allLabel) {
+        const all = document.createElement('option');
+        all.value = 'ALL';
+        all.textContent = options.allLabel;
+        selectEl.appendChild(all);
+      }
+      values.forEach((v, i) => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = options.numbered ? (i + 1) + '. ' + v : v;
+        selectEl.appendChild(opt);
+      });
+      // A job may carry a value nobody configured (typed on another device
+      // before this list synced) - keep it selectable rather than silently
+      // switching the job to the first option.
+      const keepable = current && current !== ADD_NEW_VALUE && current !== 'ALL';
+      if (keepable && !values.includes(current)) {
+        const opt = document.createElement('option');
+        opt.value = current;
+        opt.textContent = current;
+        selectEl.appendChild(opt);
+      }
+      if (options.addNew) {
+        const add = document.createElement('option');
+        add.value = ADD_NEW_VALUE;
+        add.textContent = '➕ เพิ่มฝ่ายย่อยใหม่...';
+        selectEl.appendChild(add);
+      }
+      if (keepable || current === 'ALL') selectEl.value = current;
+      if (!selectEl.value) selectEl.value = options.allLabel ? 'ALL' : (values[0] || '');
+    }
+
+    function fillDatalist(id, values) {
+      const dl = document.getElementById(id);
+      if (!dl) return;
+      dl.innerHTML = '';
+      values.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        dl.appendChild(opt);
+      });
+    }
+
+    function renderOptionLists() {
+      const subDepts = getOptionList('sub_departments');
+      const filterEl = document.getElementById('subDeptFilter');
+      const filterBefore = filterEl ? filterEl.value : 'ALL';
+      fillSelect(filterEl, subDepts, filterBefore, { allLabel: 'ทุกฝ่ายย่อย (All Sub-Depts)', numbered: true });
+      if (filterEl && filterEl.value !== filterBefore) renderApp();
+
+      fillSelect(document.getElementById('newSubDept'), subDepts, undefined, { numbered: true, addNew: true });
+      fillSelect(document.getElementById('editSubDept'), subDepts, undefined, { addNew: true });
+
+      fillDatalist('technicianOptions', getOptionList('technicians'));
+      fillDatalist('customerOptions', getOptionList('customers'));
+
+      Object.keys(COMBOS).forEach(renderCombo);
+    }
+
+    /* -----------------------------------------------------------------------
+     * COMBO FIELDS - a tidy numbered dropdown that still accepts a new name
+     *
+     * Customer and technician are picked from a <select> like the
+     * sub-department. The last choice, "พิมพ์ชื่อใหม่...", reveals the text
+     * box for a name the system has not seen yet. The text box is always the
+     * field the save code reads, so the rest of the app is unchanged.
+     * --------------------------------------------------------------------- */
+    const CUSTOM_VALUE = '__custom__';
+    const COMBOS = {
+      newProjectName:  { select: 'newProjectNameSelect',  key: 'customers',   pick: 'เลือกลูกค้า / ไซต์งานจากรายการ...', custom: '✏️ พิมพ์ชื่อไซต์งาน / ลูกค้าใหม่ (ไม่มีในรายการ)...', onPick: v => autofillFromCustomer('new', v) },
+      editProjectName: { select: 'editProjectNameSelect', key: 'customers',   pick: 'เลือกลูกค้า / ไซต์งานจากรายการ...', custom: '✏️ พิมพ์ชื่อไซต์งาน / ลูกค้าใหม่ (ไม่มีในรายการ)...', onPick: v => autofillFromCustomer('edit', v) },
+      newTechnician:   { select: 'newTechnicianSelect',   key: 'technicians', pick: 'เลือกหัวหน้าช่างจากรายชื่อ...',       custom: '✏️ พิมพ์ชื่อช่างใหม่ (ไม่มีในรายชื่อ)...' },
+      editTechnician:  { select: 'editTechnicianSelect',  key: 'technicians', pick: 'เลือกหัวหน้าช่างจากรายชื่อ...',       custom: '✏️ พิมพ์ชื่อช่างใหม่ (ไม่มีในรายชื่อ)...' }
+    };
+
+    function renderCombo(inputId) {
+      const cfg = COMBOS[inputId];
+      const select = document.getElementById(cfg.select);
+      if (!select) return;
+      const values = getOptionList(cfg.key);
+
+      select.innerHTML = '';
+      const ph = document.createElement('option');
+      ph.value = '';
+      ph.textContent = cfg.pick;
+      select.appendChild(ph);
+      values.forEach((v, i) => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = (i + 1) + '. ' + v;
+        select.appendChild(opt);
+      });
+      const custom = document.createElement('option');
+      custom.value = CUSTOM_VALUE;
+      custom.textContent = cfg.custom;
+      select.appendChild(custom);
+
+      syncCombo(inputId);
+    }
+
+    // Makes the dropdown reflect whatever the text box currently holds
+    function syncCombo(inputId) {
+      const cfg = COMBOS[inputId];
+      const select = document.getElementById(cfg.select);
+      const input = document.getElementById(inputId);
+      if (!select || !input) return;
+      const value = cleanOptionValue(input.value);
+
+      if (value && Array.from(select.options).some(o => o.value === value)) {
+        select.value = value;
+        input.classList.add('hidden');
+      } else if (value) {
+        select.value = CUSTOM_VALUE;     // a name not on the list - keep it visible for editing
+        input.classList.remove('hidden');
+      } else {
+        select.value = '';
+        input.classList.add('hidden');
+      }
+    }
+
+    function handleComboChange(inputId) {
+      const cfg = COMBOS[inputId];
+      const select = document.getElementById(cfg.select);
+      const input = document.getElementById(inputId);
+      if (!select || !input) return;
+
+      if (select.value === CUSTOM_VALUE) {
+        input.value = '';
+        input.classList.remove('hidden');
+        input.focus();
+        return;
+      }
+
+      input.value = select.value;
+      input.classList.add('hidden');
+      if (select.value && cfg.onPick) cfg.onPick(select.value);
+    }
+
+    // The value the save code should use, with a friendly message when missing
+    function comboValueOrWarn(inputId, label) {
+      const input = document.getElementById(inputId);
+      const value = cleanOptionValue(input ? input.value : '');
+      if (value) return value;
+      const cfg = COMBOS[inputId];
+      const select = document.getElementById(cfg.select);
+      alert('กรุณาเลือกหรือพิมพ์' + label);
+      if (select && select.value === CUSTOM_VALUE && input) input.focus();
+      else if (select) select.focus();
+      return '';
+    }
+
+    // "➕ เพิ่มฝ่ายย่อยใหม่..." picked straight from the form
+    async function handleSubDeptChange(selectEl) {
+      if (!selectEl || selectEl.value !== ADD_NEW_VALUE) return;
+      const prev = selectEl.dataset.prev || getOptionList('sub_departments')[0] || '';
+      const typed = prompt('ชื่อฝ่ายย่อยใหม่ (จะถูกเพิ่มเป็นตัวเลือกให้ทุกเครื่อง):');
+      const name = cleanOptionValue(typed);
+      if (!name) { selectEl.value = prev; return; }
+
+      const ok = await addOptionValue('sub_departments', name);
+      renderOptionLists();
+      selectEl.value = name;
+      if (ok) showSyncToast('เพิ่มฝ่ายย่อย "' + name + '" แล้ว');
+    }
+
+    async function addOptionValue(key, value) {
+      const name = cleanOptionValue(value);
+      if (!name) return false;
+      // Seed from the effective list so the first custom entry does not wipe the defaults
+      const list = getOptionList(key);
+      if (list.includes(name)) return true;
+      const next = {};
+      next[key] = list.concat([name]);
+      return persistOptions(next);
+    }
+
+    /**
+     * Saves the given lists ({key: [...]}) - to the sheet when Code.gs supports
+     * it, otherwise to this browser. Returns true on success.
+     */
+    async function persistOptions(partial) {
+      const keys = Object.keys(partial).filter(k => OPTION_GROUPS[k]);
+      if (keys.length === 0) return false;
+
+      if (state.optionsSource === 'server') {
+        const settings = {};
+        keys.forEach(k => { settings[k] = partial[k].map(cleanOptionValue).filter(Boolean); });
+        const { json, error } = await apiPost({ action: 'SAVE_SETTINGS', settings: settings });
+        if (json && json.status === 'success' && json.settings) {
+          Object.keys(OPTION_GROUPS).forEach(k => {
+            state.options[k] = Array.isArray(json.settings[k]) ? json.settings[k] : [];
+          });
+          return true;
+        }
+        alert('บันทึกตัวเลือกลง Google Sheet ไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
+        return false;
+      }
+
+      keys.forEach(k => { state.options[k] = partial[k].map(cleanOptionValue).filter(Boolean); });
+      saveLocalOptions();
+      return true;
+    }
+
+    /* ---------------- ⚙ dialog ---------------- */
+    let optionsDraft = null;
+
+    function openOptionsModal(focusKey) {
+      optionsDraft = {};
+      Object.keys(OPTION_GROUPS).forEach(k => { optionsDraft[k] = getOptionList(k); });
+
+      const note = document.getElementById('optionsSourceNote');
+      if (note) {
+        if (state.optionsSource === 'server') {
+          note.className = 'text-[11px] rounded-xl px-3 py-2 border bg-emerald-50 border-emerald-200 text-emerald-800';
+          note.innerHTML = '<i class="fa-solid fa-cloud-check mr-1"></i>ตัวเลือกเก็บใน Google Sheet (แท็บ <b>App_Settings</b>) — บันทึกแล้วทุกเครื่องเห็นเหมือนกัน';
+        } else {
+          note.className = 'text-[11px] rounded-xl px-3 py-2 border bg-amber-50 border-amber-300 text-amber-900';
+          note.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i>ตอนนี้ตัวเลือกถูกจำไว้ใน<b>เครื่องนี้เท่านั้น</b> (สคริปต์ฝั่ง Google ยังเป็นเวอร์ชันเก่า) — ค่าที่ใช้ในใบงานที่บันทึกแล้วจะยังแสดงให้ทุกเครื่อง ถ้าต้องการซิงก์รายการทั้งหมด ให้วาง Code.gs ใหม่แล้ว Deploy เวอร์ชันใหม่';
+        }
+      }
+
+      renderOptionsSections();
+      document.getElementById('optionsModal').classList.remove('hidden');
+
+      if (focusKey) {
+        setTimeout(() => {
+          const input = document.getElementById('optionInput_' + focusKey);
+          if (input) { input.scrollIntoView({ block: 'center', behavior: 'smooth' }); input.focus(); }
+        }, 80);
+      }
+    }
+
+    function closeOptionsModal() {
+      optionsDraft = null;
+      document.getElementById('optionsModal').classList.add('hidden');
+    }
+
+    function renderOptionsSections() {
+      const host = document.getElementById('optionsSections');
+      if (!host || !optionsDraft) return;
+      host.innerHTML = '';
+
+      Object.keys(OPTION_GROUPS).forEach(key => {
+        const group = OPTION_GROUPS[key];
+        const inUse = valuesInUse(group.field);
+        const list = optionsDraft[key];
+
+        const section = document.createElement('div');
+        section.className = 'rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden';
+        section.innerHTML =
+          '<div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">' +
+            '<div class="min-w-0">' +
+              '<h4 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid ' + group.icon + ' text-pts-800"></i>' + esc(group.label) +
+              ' <span class="text-[11px] font-bold text-slate-500 bg-white border border-slate-200 rounded-md px-1.5 py-0.5">' + list.length + '</span></h4>' +
+              '<p class="text-[11px] text-slate-500">' + esc(group.hint) + '</p>' +
+            '</div>' +
+          '</div>' +
+          '<div class="p-3 sm:p-4 space-y-3">' +
+            '<div class="flex items-center gap-2">' +
+              '<input type="text" id="optionInput_' + key + '" placeholder="' + esc(group.placeholder) + '" class="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">' +
+              '<button type="button" data-add="' + key + '" class="px-4 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold transition active:scale-95 shrink-0"><i class="fa-solid fa-plus mr-1"></i>เพิ่ม</button>' +
+            '</div>' +
+            '<div class="flex flex-wrap gap-2" data-chips="' + key + '"></div>' +
+          '</div>';
+
+        const chips = section.querySelector('[data-chips]');
+        if (list.length === 0) {
+          chips.innerHTML = '<p class="text-xs text-slate-400 italic">ยังไม่มีรายการ — พิมพ์ชื่อด้านบนแล้วกดเพิ่ม</p>';
+        }
+        list.forEach((value, idx) => {
+          const count = inUse[value] || 0;
+          const chip = document.createElement('span');
+          chip.className = 'inline-flex items-center gap-1.5 pl-3 pr-1 py-1 rounded-full bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 max-w-full';
+          chip.innerHTML =
+            '<span class="truncate max-w-[220px]" title="' + esc(value) + '">' + esc(value) + '</span>' +
+            (count > 0 ? '<span class="text-[10px] font-bold text-slate-500 bg-white border border-slate-200 rounded-full px-1.5" title="มีใบงานใช้ค่านี้อยู่ ' + count + ' ใบ">' + count + '</span>' : '') +
+            '<button type="button" data-remove="' + idx + '" class="w-6 h-6 rounded-full hover:bg-rose-100 text-rose-600 flex items-center justify-center transition" title="เอาออกจากรายการ"><i class="fa-solid fa-xmark text-[11px]"></i></button>';
+          chip.querySelector('[data-remove]').onclick = () => {
+            if (count > 0 && !confirm('"' + value + '" มีใบงานใช้อยู่ ' + count + ' ใบ\n\nถ้าเอาออก ค่านี้จะยังแสดงในตัวเลือกจนกว่าใบงานเหล่านั้นจะเปลี่ยนค่า แต่จะไม่แนะนำสำหรับงานใหม่\n\nเอาออกใช่หรือไม่?')) return;
+            optionsDraft[key].splice(idx, 1);
+            renderOptionsSections();
+          };
+          chips.appendChild(chip);
+        });
+
+        const input = section.querySelector('#optionInput_' + key);
+        const addBtn = section.querySelector('[data-add]');
+        const addFromInput = () => {
+          const name = cleanOptionValue(input.value);
+          if (!name) return;
+          if (optionsDraft[key].some(v => v.toLowerCase() === name.toLowerCase())) {
+            showSyncToast('"' + name + '" มีอยู่ในรายการแล้ว');
+            input.value = '';
+            return;
+          }
+          optionsDraft[key].push(name);
+          input.value = '';
+          renderOptionsSections();
+          setTimeout(() => { const el = document.getElementById('optionInput_' + key); if (el) el.focus(); }, 0);
+        };
+        addBtn.onclick = addFromInput;
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addFromInput(); } });
+
+        host.appendChild(section);
+      });
+    }
+
+    async function saveOptionsModal() {
+      if (!optionsDraft) return;
+      const payload = {};
+      Object.keys(OPTION_GROUPS).forEach(k => { payload[k] = optionsDraft[k].slice(); });
+
+      const ok = await withBusy('optionsSaveBtn', 'กำลังบันทึก...', () => persistOptions(payload));
+      if (!ok) return;
+
+      renderOptionLists();
+      closeOptionsModal();
+      showSyncToast(state.optionsSource === 'server' ? 'บันทึกตัวเลือกลง Google Sheet แล้ว (ทุกเครื่องเห็นเหมือนกัน)' : 'บันทึกตัวเลือกในเครื่องนี้แล้ว');
+    }
+
+    /* =======================================================================
+     * CUSTOMER RECALL - reuse what a previous job already recorded
+     *
+     * The jobs on the sheet ARE the customer directory. Picking a customer
+     * (from the address-book dialog, or by choosing a suggestion in the site
+     * name box) copies the site location, contact phone, map link, technician
+     * and sub-department from that customer's most recent job. Only EMPTY
+     * fields are filled, so nothing the user already typed is overwritten.
+     * ===================================================================== */
+    const AUTOFILL_FIELDS = [
+      { field: 'Site_Location',        idNew: 'newSiteLocation',     idEdit: 'editSiteLocation',     label: 'สถานที่' },
+      { field: 'Site_Contact_Phone',   idNew: 'newSiteContactPhone', idEdit: 'editSiteContactPhone', label: 'เบอร์ติดต่อ' },
+      { field: 'Site_Map_Url',         idNew: 'newSiteMapUrl',       idEdit: 'editSiteMapUrl',       label: 'แผนที่' },
+      { field: 'Technician_In_Charge', idNew: 'newTechnician',       idEdit: 'editTechnician',       label: 'ช่าง' },
+      { field: 'Sub_Department',       idNew: 'newSubDept',          idEdit: 'editSubDept',          label: 'ฝ่ายย่อย', isSelect: true }
+    ];
+
+    function jobSortKey(task) {
+      const m = /(\d+)\s*$/.exec(String(task.Job_ID || '').trim());
+      return m ? parseInt(m[1], 10) : 0;
+    }
+
+    // One entry per customer name: details come from the newest job
+    function buildCustomerDirectory() {
+      const byName = {};
+      (state.tasks || []).forEach(t => {
+        const name = cleanOptionValue(t.Project_Name);
+        if (!name) return;
+        const k = name.toLowerCase();
+        if (!byName[k]) byName[k] = { name: name, jobs: 0, latest: null };
+        byName[k].jobs++;
+        if (!byName[k].latest || jobSortKey(t) > jobSortKey(byName[k].latest)) byName[k].latest = t;
+      });
+      // Names configured in ⚙ but without a job yet still appear (no details)
+      (state.options.customers || []).forEach(name => {
+        const k = name.toLowerCase();
+        if (!byName[k]) byName[k] = { name: name, jobs: 0, latest: null };
+      });
+      return Object.values(byName).sort((a, b) => {
+        if (b.jobs !== a.jobs) return b.jobs - a.jobs;
+        return a.name.localeCompare(b.name, 'th');
+      });
+    }
+
+    function findCustomer(name) {
+      const k = cleanOptionValue(name).toLowerCase();
+      if (!k) return null;
+      return buildCustomerDirectory().find(c => c.name.toLowerCase() === k) || null;
+    }
+
+    // Copies details from `source` into the empty fields of the form. Returns
+    // the labels that were filled so the caller can tell the user.
+    function applyCustomerToForm(mode, source) {
+      if (!source) return [];
+      const filled = [];
+      AUTOFILL_FIELDS.forEach(f => {
+        const el = document.getElementById(mode === 'new' ? f.idNew : f.idEdit);
+        if (!el) return;
+        const value = cleanOptionValue(source[f.field]);
+        if (!value) return;
+        if (f.isSelect) {
+          // Only for a NEW job, and only while the dropdown still sits on its
+          // default first choice - never re-file an existing job's department
+          if (mode !== 'new') return;
+          const untouched = el.selectedIndex <= 0;
+          if (!untouched || el.value === value) return;
+          if (!Array.from(el.options).some(o => o.value === value)) {
+            const opt = document.createElement('option');
+            opt.value = value; opt.textContent = value;
+            const addOpt = Array.from(el.options).find(o => o.value === ADD_NEW_VALUE) || null;
+            el.insertBefore(opt, addOpt);
+          }
+          el.value = value;
+          filled.push(f.label);
+          return;
+        }
+        if (cleanOptionValue(el.value)) return;   // never overwrite what was typed
+        el.value = value;
+        if (COMBOS[el.id]) syncCombo(el.id);
+        filled.push(f.label);
+      });
+      return filled;
+    }
+
+    function showAutofillHint(mode, text) {
+      const el = document.getElementById(mode === 'new' ? 'newAutofillHint' : 'editAutofillHint');
+      if (!el) return;
+      if (!text) { el.classList.add('hidden'); el.textContent = ''; return; }
+      el.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i>' + esc(text);
+      el.classList.remove('hidden');
+    }
+
+    // Fired when the site-name box changes (typing a known name or picking a suggestion)
+    function autofillFromCustomer(mode, name) {
+      const customer = findCustomer(name);
+      if (!customer || !customer.latest) { showAutofillHint(mode, ''); return; }
+      const filled = applyCustomerToForm(mode, customer.latest);
+      if (filled.length === 0) return;
+      showAutofillHint(mode, 'เติม ' + filled.join(' · ') + ' จากใบงาน ' + customer.latest.Job_ID + ' ให้แล้ว (แก้ไขได้ตามต้องการ)');
+    }
+
+    /* ---------------- address-book dialog ---------------- */
+    let customerPickerMode = 'new';
+
+    function openCustomerPicker(mode) {
+      customerPickerMode = mode;
+      const search = document.getElementById('customerPickerSearch');
+      if (search) search.value = '';
+      renderCustomerPicker();
+      document.getElementById('customerPickerModal').classList.remove('hidden');
+      setTimeout(() => { if (search && !isMobileViewport()) search.focus(); }, 60);
+    }
+
+    function closeCustomerPicker() {
+      document.getElementById('customerPickerModal').classList.add('hidden');
+    }
+
+    function renderCustomerPicker() {
+      const host = document.getElementById('customerPickerList');
+      if (!host) return;
+      const searchEl = document.getElementById('customerPickerSearch');
+      const q = cleanOptionValue(searchEl ? searchEl.value : '').toLowerCase();
+
+      const rows = buildCustomerDirectory().filter(c => {
+        if (!q) return true;
+        const t = c.latest || {};
+        return [c.name, t.Site_Location, t.Site_Contact_Phone, t.Technician_In_Charge, t.Sub_Department]
+          .some(v => String(v || '').toLowerCase().includes(q));
+      });
+
+      host.innerHTML = '';
+      if (rows.length === 0) {
+        host.innerHTML =
+          '<div class="py-10 text-center text-slate-400 bg-white rounded-2xl border border-dashed border-slate-300">' +
+            '<i class="fa-solid fa-address-book text-3xl text-slate-300 mb-2 block"></i>' +
+            '<p class="text-xs font-bold text-slate-600">' + (q ? 'ไม่พบลูกค้าที่ตรงกับคำค้น' : 'ยังไม่มีข้อมูลลูกค้าเก่า') + '</p>' +
+            '<p class="text-[11px] text-slate-500 mt-1">ระบบดึงรายชื่อจากใบงานที่เคยบันทึกไว้ทั้งหมดโดยอัตโนมัติ</p>' +
+          '</div>';
+        return;
+      }
+
+      rows.slice(0, 200).forEach(c => {
+        const t = c.latest || {};
+        const line = (icon, color, text) => text ? '<span><i class="fa-solid ' + icon + ' ' + color + ' mr-1"></i>' + esc(text) + '</span>' : '';
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'w-full text-left bg-white rounded-2xl border border-slate-200 hover:border-pts-800 hover:shadow-md active:scale-[0.99] transition p-3.5';
+        card.innerHTML =
+          '<div class="flex items-start justify-between gap-3">' +
+            '<div class="min-w-0">' +
+              '<p class="text-sm font-bold text-slate-900 truncate">' + esc(c.name) + '</p>' +
+              '<div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-600">' +
+                line('fa-location-dot', 'text-rose-500', t.Site_Location) +
+                line('fa-phone', 'text-emerald-600', t.Site_Contact_Phone) +
+                line('fa-helmet-safety', 'text-amber-600', t.Technician_In_Charge) +
+                line('fa-sitemap', 'text-pts-800', t.Sub_Department) +
+                (t.Site_Map_Url ? '<span><i class="fa-solid fa-map text-blue-600 mr-1"></i>มีลิงก์แผนที่</span>' : '') +
+                (!c.latest ? '<span class="italic text-slate-400">ยังไม่มีใบงาน — จะเติมเฉพาะชื่อ</span>' : '') +
+              '</div>' +
+            '</div>' +
+            '<div class="text-right shrink-0">' +
+              '<span class="inline-block text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 rounded-md px-1.5 py-0.5">' + c.jobs + ' ใบงาน</span>' +
+              (t.Job_ID ? '<p class="text-[10px] font-mono text-slate-400 mt-1">ล่าสุด ' + esc(t.Job_ID) + '</p>' : '') +
+            '</div>' +
+          '</div>';
+        card.onclick = () => pickCustomer(c);
+        host.appendChild(card);
+      });
+    }
+
+    function pickCustomer(customer) {
+      const mode = customerPickerMode;
+      const nameEl = document.getElementById(mode === 'new' ? 'newProjectName' : 'editProjectName');
+      if (nameEl) { nameEl.value = customer.name; syncCombo(nameEl.id); }
+
+      const filled = customer.latest ? applyCustomerToForm(mode, customer.latest) : [];
+      closeCustomerPicker();
+
+      if (filled.length > 0) {
+        showAutofillHint(mode, 'เติม ' + filled.join(' · ') + ' จากใบงาน ' + customer.latest.Job_ID + ' ให้แล้ว (แก้ไขได้ตามต้องการ)');
+      } else if (customer.latest) {
+        showAutofillHint(mode, 'ช่องอื่นมีข้อมูลอยู่แล้ว จึงเติมเฉพาะชื่อลูกค้า (ใบงานล่าสุด ' + customer.latest.Job_ID + ')');
+      } else {
+        showAutofillHint(mode, '');
+      }
     }

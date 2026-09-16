@@ -24,6 +24,12 @@
  *       the wrong job. CREATE also re-issues an ID if the one sent already exists.
  *     - Text starting with "=" is stored as text instead of becoming a formula.
  *
+ * v8: Option lists managed from inside the app.
+ *     Sub-departments, technician names and customer names live in a new tab
+ *     "App_Settings" (Key | Value, one row per entry), read with ?settings=1
+ *     and written with action SAVE_SETTINGS. The tab is created on the first
+ *     save. Nothing about the task sheet or the attachment flow changed.
+ *
  * Deployment Instructions:
  * 1. Open your Google Sheet.
  * 2. Click Extensions > Apps Script.
@@ -325,6 +331,11 @@ function doGet(e) {
       return jsonResponse({ status: "success", rev: getRevision() }, e);
     }
 
+    // User-managed option lists (sub-departments, technicians, customers)
+    if (e && e.parameter && e.parameter.settings === "1") {
+      return jsonResponse({ status: "success", settings: readSettings() }, e);
+    }
+
     // Serve the cached payload when the browser is just polling for changes
     const wantsFresh = e && e.parameter && e.parameter.fresh === "1";
     const cache = CacheService.getScriptCache();
@@ -414,6 +425,8 @@ function doPost(e) {
       return handleUpdate(sheet, requestData.data, e);
     } else if (action === "DELETE") {
       return handleDelete(sheet, requestData.job_id, e);
+    } else if (action === "SAVE_SETTINGS") {
+      return handleSaveSettings(requestData.settings, e);
     } else {
       return jsonResponse({ status: "error", message: "Invalid action type: " + action }, e);
     }
@@ -1164,6 +1177,87 @@ function extensionForMime(mimeType) {
   if (map[mimeType]) return map[mimeType];
   const tail = mimeType.split("/")[1];
   return tail ? tail.split("+")[0] : "bin";
+}
+
+/* ---------------------------------------------------------------------------
+ * APP SETTINGS - option lists the team manages from inside the app
+ *
+ * Sub-departments, technician names and customer names used to be hard-coded
+ * in index.html, so adding one meant a code change. They now live in their
+ * own tab, "App_Settings", one row per entry (Key | Value). The tab is created
+ * on first save; the task sheet is never touched by any of this.
+ * ------------------------------------------------------------------------- */
+const SETTINGS_SHEET_NAME = "App_Settings";
+const SETTINGS_KEYS = ["sub_departments", "technicians", "customers"];
+const SETTINGS_MAX_ITEMS = 300;
+const SETTINGS_MAX_LEN = 120;
+
+function getSettingsSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SETTINGS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SETTINGS_SHEET_NAME);
+    sheet.getRange(1, 1, 1, 2).setValues([["Key", "Value"]])
+      .setFontWeight("bold").setBackground("#991B1B").setFontColor("#FFFFFF");
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 170);
+    sheet.setColumnWidth(2, 340);
+  }
+  return sheet;
+}
+
+function readSettings() {
+  const out = {};
+  SETTINGS_KEYS.forEach(function (k) { out[k] = []; });
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SETTINGS_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return out;
+
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  rows.forEach(function (r) {
+    const key = String(r[0] || "").trim();
+    const val = String(r[1] || "").trim();
+    if (!key || !val || !out.hasOwnProperty(key)) return;
+    if (out[key].indexOf(val) === -1) out[key].push(val);
+  });
+  return out;
+}
+
+function cleanSettingsList(list) {
+  const seen = {};
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(function (v) {
+    const s = String(v || "").replace(/\s+/g, " ").trim().slice(0, SETTINGS_MAX_LEN);
+    if (!s || seen[s]) return;
+    seen[s] = true;
+    if (out.length < SETTINGS_MAX_ITEMS) out.push(s);
+  });
+  return out;
+}
+
+function handleSaveSettings(settings, e) {
+  const incoming = settings || {};
+  const keys = SETTINGS_KEYS.filter(function (k) { return incoming.hasOwnProperty(k); });
+  if (keys.length === 0) {
+    return jsonResponse({ status: "error", message: "No settings given" }, e);
+  }
+
+  withSheetLock(function () {
+    const sheet = getSettingsSheet();
+    const current = readSettings();
+    keys.forEach(function (k) { current[k] = cleanSettingsList(incoming[k]); });
+
+    // The tab is tiny, so it is simply rewritten - rows stay grouped by key
+    const rows = [];
+    SETTINGS_KEYS.forEach(function (k) {
+      current[k].forEach(function (v) { rows.push([k, sheetSafeValue("", v)]); });
+    });
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, 2).clearContent();
+    if (rows.length > 0) sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+  });
+
+  return jsonResponse({ status: "success", settings: readSettings() }, e);
 }
 
 function jsonResponse(obj, e) {
