@@ -4112,9 +4112,14 @@ const MAX_PHOTOS_PER_TASK = 100;
     }
 
     function albumUnreachableMessage() {
-      return 'เปิดไฟล์รูปของใบงานนี้ไม่ได้เลยสักรูป\n\n' +
-        'มักเกิดจากโฟลเดอร์รูปใน Google Drive ถูกลบ ถูกย้าย หรือสิทธิ์แชร์ถูกเปลี่ยนเป็นส่วนตัว\n' +
-        'กรุณาตรวจสอบโฟลเดอร์ PTS_Engineering_Attachments ใน Google Drive แล้วลองใหม่อีกครั้งครับ';
+      // Throttling is listed first on purpose: it is by far the most common
+      // cause after a few albums in a row, it looks identical to a permission
+      // problem from the browser's side, and it clears itself in a minute.
+      return 'ดึงรูปของใบงานนี้ไม่สำเร็จเลยสักรูป\n\n' +
+        '1) ถ้าเพิ่งดาวน์โหลดรูปไปหลายชุดติดกัน Google จะจำกัดการโหลดชั่วคราว — ' +
+        'พักสัก 1-2 นาทีแล้วกดใหม่ มักหายเอง\n' +
+        '2) ถ้ายังไม่ได้เหมือนเดิม ให้ตรวจโฟลเดอร์ PTS_Engineering_Attachments ใน Google Drive ' +
+        'ว่าถูกลบ ถูกย้าย หรือสิทธิ์แชร์ถูกเปลี่ยนเป็นส่วนตัวหรือไม่ครับ';
     }
 
     async function fetchPhotoBlob(entry, signal, budget) {
@@ -4203,9 +4208,9 @@ const MAX_PHOTOS_PER_TASK = 100;
     function reportFailedPhotos(failed, total) {
       if (!failed || failed.length === 0) return;
       alert(`บันทึกสำเร็จ ${total - failed.length} จาก ${total} รูป\n\n` +
-        `โหลดไม่สำเร็จ: รูปที่ ${failed.join(', ')}\n` +
-        'สาเหตุที่พบบ่อยคือไฟล์นั้นถูกลบออกจาก Google Drive หรือสิทธิ์แชร์ถูกเปลี่ยน ' +
-        'ลองเปิดดูรูปนั้นในใบงานเพื่อตรวจสอบได้ครับ');
+        `โหลดไม่สำเร็จ: รูปที่ ${failed.join(', ')}\n\n` +
+        'ลองกดดาวน์โหลดเฉพาะรูปที่ขาดอีกครั้งด้วยปุ่ม "เลือกรูป" — ส่วนใหญ่เป็นเพราะ Google ' +
+        'จำกัดการโหลดชั่วคราวและจะได้ครบในรอบถัดไป ถ้ายังไม่ได้ แสดงว่าไฟล์นั้นถูกลบออกจาก Drive ครับ');
     }
 
     /* ---------------- the download itself ---------------- */
