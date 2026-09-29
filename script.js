@@ -425,7 +425,9 @@ const MAX_PHOTOS_PER_TASK = 100;
       tempEditDelivery: [],
       currentDeliveryJobId: null,
       deliveryPending: [],
-      deliveryPendingJobId: null
+      deliveryPendingJobId: null,
+      detailPhotos: [],
+      detailPhotoTask: null
     };
 
     // INITIALIZATION (EMBEDDED LIVE MODE DIRECT)
@@ -696,6 +698,9 @@ const MAX_PHOTOS_PER_TASK = 100;
       const jobId = state.currentDetailJobId;
       if (!jobId) return;
       if (document.getElementById('detailModal').classList.contains('hidden')) return;
+      // Redrawing mid-task would throw away the photos the user is ticking, or
+      // swap the list out from under a download that is already running.
+      if (photoSelectMode || downloadToken) return;
       if (state.tasks.some(t => t.Job_ID === jobId)) openDetailModal(jobId);
     }
 
@@ -2199,6 +2204,8 @@ const MAX_PHOTOS_PER_TASK = 100;
       img.classList.add('hidden');
       frame.classList.add('hidden');
       frame.src = 'about:blank';
+      const dlBtn = document.getElementById('lightboxDownloadBtn');
+      if (dlBtn) dlBtn.classList.add('hidden');   // re-shown by renderLightboxPhoto
 
       if (type === 'image') {
         img.onerror = () => {
@@ -2247,6 +2254,11 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       const caption = `${state.lightboxLabel ? state.lightboxLabel + ' · ' : ''}รูปที่ ${idx + 1} / ${list.length}`;
       openLightboxModal('image', list[idx], caption);
+
+      // Only a photo gallery can be saved this way - videos and PDFs keep the
+      // "open in Drive" link instead.
+      const dl = document.getElementById('lightboxDownloadBtn');
+      if (dl) dl.classList.remove('hidden');
     }
 
     function stepLightbox(delta) {
@@ -2312,6 +2324,9 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     function closeDetailModal() {
       state.currentDetailJobId = null;
+      // Leaving select mode armed would block the next auto-refresh of this
+      // dialog and carry a stale tick list into the next job opened.
+      setPhotoSelectMode(false);
       document.getElementById('detailModal').classList.add('hidden');
     }
 
@@ -2402,8 +2417,29 @@ const MAX_PHOTOS_PER_TASK = 100;
     }
 
     function renderDetailPhotos(task, photos) {
-      const container = document.getElementById('detailPhotosGallery');
       document.getElementById('detailPhotoCount').textContent = `(${photos.length} รูป)`;
+
+      // Remembered so the download buttons know exactly what is on screen
+      state.detailPhotos = photos || [];
+      state.detailPhotoTask = task;
+
+      const tools = document.getElementById('detailPhotoTools');
+      if (tools) {
+        tools.classList.toggle('hidden', photos.length === 0);
+        tools.classList.toggle('flex', photos.length > 0);
+      }
+
+      // Reopening the dialog always starts from a clean selection
+      setPhotoSelectMode(false);
+    }
+
+    // Split out from renderDetailPhotos so toggling a selection redraws the
+    // thumbnails without re-reading the task.
+    function renderDetailPhotoThumbs() {
+      const container = document.getElementById('detailPhotosGallery');
+      if (!container) return;
+      const photos = state.detailPhotos || [];
+      const task = state.detailPhotoTask;
       container.innerHTML = '';
 
       if (photos.length === 0) {
@@ -2413,11 +2449,22 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       photos.forEach((p, idx) => {
         const src = photoSrc(p);
+        const picked = selectedPhotoIdx.has(idx);
         const div = document.createElement('div');
-        div.className = "relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100 cursor-zoom-in group";
-        div.onclick = () => openPhotoLightbox(photos, idx, task);
+        div.className = "relative aspect-square rounded-xl overflow-hidden border bg-slate-100 group transition " +
+          (photoSelectMode
+            ? (picked ? 'border-pts-800 ring-2 ring-pts-800 cursor-pointer' : 'border-slate-200 cursor-pointer hover:border-pts-400')
+            : 'border-slate-200 cursor-zoom-in');
+        div.onclick = () => {
+          if (photoSelectMode) togglePhotoSelected(idx);
+          else openPhotoLightbox(photos, idx, task);
+        };
         div.innerHTML = `
-          <img src="${escUrl(src)}" loading="lazy" alt="Site photo ${idx + 1}" class="w-full h-full object-cover group-hover:scale-110 transition duration-200">
+          <img src="${escUrl(src)}" loading="lazy" alt="Site photo ${idx + 1}" class="w-full h-full object-cover ${photoSelectMode ? (picked ? 'opacity-100' : 'opacity-60') : 'group-hover:scale-110'} transition duration-200">
+          ${photoSelectMode ? `
+            <span class="absolute top-1 left-1 w-6 h-6 rounded-full flex items-center justify-center text-[11px] shadow ${picked ? 'bg-pts-800 text-white' : 'bg-white/90 text-slate-400 border border-slate-300'}">
+              <i class="fa-solid ${picked ? 'fa-check' : 'fa-circle'} ${picked ? '' : 'text-[7px]'}"></i>
+            </span>` : ''}
           <span class="absolute bottom-1 right-1 text-[9px] font-bold text-white bg-slate-900/70 px-1.5 py-0.5 rounded-md">${idx + 1}</span>
         `;
         container.appendChild(div);
@@ -3877,5 +3924,640 @@ const MAX_PHOTOS_PER_TASK = 100;
         showAutofillHint(mode, 'ช่องอื่นมีข้อมูลอยู่แล้ว จึงเติมเฉพาะชื่อลูกค้า (ใบงานล่าสุด ' + customer.latest.Job_ID + ')');
       } else {
         showAutofillHint(mode, '');
+      }
+    }
+
+    /* =======================================================================
+     * PHOTO DOWNLOAD - real image files, saved where the user wants them
+     *
+     * No .zip anywhere: every photo lands as its own .jpg, because a phone
+     * cannot open a zip into its gallery and a technician wants the pictures
+     * filed straight into a folder of their choosing.
+     *
+     * Three routes, picked by what the browser actually offers:
+     *
+     *  1. FOLDER PICKER (Chrome/Edge on Windows, macOS, Linux) - the user
+     *     chooses any folder and the files are written into it directly,
+     *     with no trip through the Downloads folder.
+     *  2. OS SHARE SHEET (phones) - navigator.share hands the files to the
+     *     system, so the user picks Photos, Files (any folder), Drive, LINE...
+     *  3. PLAIN DOWNLOADS - the universal fallback, one save per photo.
+     *
+     * Bytes come from lh3.googleusercontent.com: the stored Drive links and
+     * the thumbnail endpoint both refuse cross-origin reads, while the lh3
+     * mirror of the same file id sends CORS headers. "=s0" is the stored
+     * original, which the app already compressed to 900px before upload.
+     * ===================================================================== */
+    const PHOTO_FETCH_RETRIES = 2;
+    const SEQUENTIAL_SAVE_DELAY_MS = 220;   // browsers drop saves fired back to back
+    // An album is normally a few MB. This ceiling only ever trips on photos
+    // that reached Drive without the app's compressor, and it stops a phone
+    // from being pushed into an out-of-memory reload halfway through.
+    const MEMORY_ROUTE_MAX_BYTES = 150 * 1024 * 1024;
+
+    let photoSelectMode = false;
+    let selectedPhotoIdx = new Set();
+    let downloadToken = null;
+    // Set the moment a download is requested. downloadToken only appears after
+    // the folder dialog closes, so without this a second click while that
+    // dialog is open would start a duplicate run.
+    let downloadStarting = false;
+    let pendingSaveFiles = [];              // fetched, still waiting for a destination
+    let shareChunkSize = 0;                 // 0 = this device cannot share files
+    let lastFetchReport = { failed: [], total: 0 };
+
+    function supportsDirectoryPicker() {
+      return typeof window.showDirectoryPicker === 'function';
+    }
+
+    /**
+     * Largest batch this device will accept through the OS share sheet.
+     * iOS in particular refuses large file sets, so probe downwards instead of
+     * finding out only when the sheet fails to open.
+     */
+    function maxShareChunk(files) {
+      if (!navigator.share || !navigator.canShare || files.length === 0) return 0;
+      const sizes = [files.length, 20, 10, 5, 2, 1];
+      for (const size of sizes) {
+        if (size > files.length) continue;
+        try {
+          if (navigator.canShare({ files: files.slice(0, size) })) return size;
+        } catch (err) { /* keep probing smaller */ }
+      }
+      return 0;
+    }
+
+    // Phones on a weak signal choke on four parallel image fetches
+    function fetchConcurrency() {
+      const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (!conn) return 4;
+      if (conn.saveData) return 2;
+      const type = conn.effectiveType || '';
+      if (type === 'slow-2g' || type === '2g') return 1;
+      if (type === '3g') return 2;
+      return 4;
+    }
+
+    function abortError() {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      return err;
+    }
+
+    /* ---------------- selection mode ---------------- */
+
+    function setPhotoSelectMode(on) {
+      photoSelectMode = !!on;
+      if (!photoSelectMode) selectedPhotoIdx.clear();
+
+      const bar = document.getElementById('detailPhotoSelectBar');
+      if (bar) {
+        bar.classList.toggle('hidden', !photoSelectMode);
+        bar.classList.toggle('flex', photoSelectMode);
+      }
+      const btn = document.getElementById('detailSelectModeBtn');
+      if (btn) {
+        btn.innerHTML = photoSelectMode
+          ? '<i class="fa-solid fa-xmark mr-1"></i>ออกจากโหมดเลือก'
+          : '<i class="fa-regular fa-square-check mr-1"></i>เลือกรูป';
+        btn.classList.toggle('bg-pts-50', photoSelectMode);
+        btn.classList.toggle('border-pts-300', photoSelectMode);
+      }
+      updateSelectedPhotoCount();
+      renderDetailPhotoThumbs();
+    }
+
+    function togglePhotoSelectMode() {
+      setPhotoSelectMode(!photoSelectMode);
+    }
+
+    function togglePhotoSelected(idx) {
+      if (selectedPhotoIdx.has(idx)) selectedPhotoIdx.delete(idx);
+      else selectedPhotoIdx.add(idx);
+      updateSelectedPhotoCount();
+      renderDetailPhotoThumbs();
+    }
+
+    function selectAllPhotos(on) {
+      selectedPhotoIdx.clear();
+      if (on) (state.detailPhotos || []).forEach((_, i) => selectedPhotoIdx.add(i));
+      updateSelectedPhotoCount();
+      renderDetailPhotoThumbs();
+    }
+
+    function updateSelectedPhotoCount() {
+      const n = selectedPhotoIdx.size;
+      const a = document.getElementById('detailPhotoSelectedCount');
+      const b = document.getElementById('detailDownloadSelectedCount');
+      if (a) a.textContent = n;
+      if (b) b.textContent = n;
+      const btn = document.getElementById('detailDownloadSelectedBtn');
+      if (btn) btn.disabled = n === 0;
+    }
+
+    /* ---------------- fetching the bytes ---------------- */
+
+    // Candidate URLs to try, best quality first
+    function photoDownloadUrls(entry) {
+      const raw = typeof entry === 'string' ? entry : (entry && (entry.url || entry.dataUrl)) || '';
+      if (!raw) return [];
+      if (raw.indexOf('data:') === 0) return [raw];
+
+      const id = getDriveFileId(raw);
+      if (id) {
+        return [
+          'https://lh3.googleusercontent.com/d/' + id + '=s0',
+          'https://lh3.googleusercontent.com/d/' + id + '=w1600'
+        ];
+      }
+      return [raw];
+    }
+
+    /**
+     * A photo, or null when it is genuinely unavailable.
+     *
+     * Retrying matters here: an 80-photo album on mobile data will hit a
+     * dropped connection or a 429 from Google sooner or later, and one blip
+     * used to cost the user that photo. A 404 or a non-image answer means the
+     * file is deleted or unshared, so those fail fast instead of waiting out
+     * the backoff.
+     */
+    /**
+     * Shared health counter for one batch. A browser cannot tell a CORS refusal
+     * apart from a dropped connection - both surface as "Failed to fetch" - so
+     * a deleted Drive folder would otherwise make every single photo sit
+     * through the full backoff. Once several photos in a row have failed with
+     * nothing succeeding, retrying is clearly pointless and is switched off for
+     * the rest of the batch.
+     */
+    function makeFetchBudget() {
+      return { ok: 0, fail: 0, retries: PHOTO_FETCH_RETRIES, giveUp: false };
+    }
+
+    function noteFetchResult(budget, ok) {
+      if (!budget) return;
+      if (ok) {
+        // Any success clears the streak: a patchy signal that drops two photos
+        // and then recovers must keep its retries for the rest of the album.
+        budget.ok++;
+        budget.fail = 0;
+        budget.retries = PHOTO_FETCH_RETRIES;
+        return;
+      }
+      // Nothing coming back: stop retrying, then stop entirely rather than
+      // grinding through a whole album that is clearly unreachable.
+      budget.fail++;
+      if (budget.fail >= 3) budget.retries = 0;
+      if (budget.fail >= 5 && budget.ok === 0) budget.giveUp = true;
+    }
+
+    function albumUnreachableMessage() {
+      return 'เปิดไฟล์รูปของใบงานนี้ไม่ได้เลยสักรูป\n\n' +
+        'มักเกิดจากโฟลเดอร์รูปใน Google Drive ถูกลบ ถูกย้าย หรือสิทธิ์แชร์ถูกเปลี่ยนเป็นส่วนตัว\n' +
+        'กรุณาตรวจสอบโฟลเดอร์ PTS_Engineering_Attachments ใน Google Drive แล้วลองใหม่อีกครั้งครับ';
+    }
+
+    async function fetchPhotoBlob(entry, signal, budget) {
+      const urls = photoDownloadUrls(entry);
+      if (urls.length === 0) return null;
+      const maxAttempts = budget ? budget.retries : PHOTO_FETCH_RETRIES;
+
+      for (let attempt = 0; attempt <= maxAttempts; attempt++) {
+        if (signal && signal.aborted) throw abortError();
+        if (attempt > 0) await delay(600 * attempt);
+
+        let worthRetrying = false;
+        for (const url of urls) {
+          if (signal && signal.aborted) throw abortError();
+          try {
+            const resp = await fetch(url, { signal, cache: 'no-store' });
+            if (resp.ok) {
+              const blob = await resp.blob();
+              if (blob.size > 0 && /^image\//i.test(blob.type)) return blob;
+              continue;   // an HTML error page - the file is gone, not a blip
+            }
+            if (resp.status === 429 || resp.status >= 500) worthRetrying = true;
+          } catch (err) {
+            if (err && err.name === 'AbortError') throw err;
+            worthRetrying = true;   // network dropped mid-request
+          }
+        }
+        if (!worthRetrying) return null;
+      }
+      return null;
+    }
+
+    function extForBlob(blob) {
+      const type = (blob && blob.type) || '';
+      if (/jpe?g/i.test(type)) return 'jpg';
+      if (/png/i.test(type)) return 'png';
+      if (/webp/i.test(type)) return 'webp';
+      if (/gif/i.test(type)) return 'gif';
+      return 'jpg';
+    }
+
+    // Windows/macOS/Android reject these in file names; Thai text is fine
+    function sanitizeDownloadName(name) {
+      return String(name || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    }
+
+    function photoFileName(jobId, idx, blob) {
+      return `${jobId}_${String(idx + 1).padStart(2, '0')}.${extForBlob(blob)}`;
+    }
+
+    function saveBlob(blob, fileName) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoking immediately can cancel the save on slower devices
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
+    /* ---------------- progress dialog ---------------- */
+
+    function showDownloadProgress(title, detail, percent, bytesText) {
+      const note = document.getElementById('uploadProgressNote');
+      if (note) note.textContent = 'ระบบกำลังดึงรูปจาก Google Drive ลงเครื่องของคุณ กรุณาอย่าเพิ่งปิดหน้าต่างเว็บ';
+      const cancel = document.getElementById('uploadProgressCancelBtn');
+      if (cancel) cancel.classList.remove('hidden');
+      showUploadProgress(title, detail, percent, bytesText);
+    }
+
+    function hideDownloadProgress() {
+      const note = document.getElementById('uploadProgressNote');
+      if (note) note.textContent = 'ระบบกำลังส่งข้อมูลขึ้น Google Drive อย่างปลอดภัย กรุณารอสักครู่ อย่าเพิ่งปิดหน้าต่างเว็บจนกว่าจะเสร็จสิ้น';
+      const cancel = document.getElementById('uploadProgressCancelBtn');
+      if (cancel) cancel.classList.add('hidden');
+      hideUploadProgress();
+    }
+
+    function cancelPhotoDownload() {
+      if (downloadToken) downloadToken.controller.abort();
+    }
+
+    function reportFailedPhotos(failed, total) {
+      if (!failed || failed.length === 0) return;
+      alert(`บันทึกสำเร็จ ${total - failed.length} จาก ${total} รูป\n\n` +
+        `โหลดไม่สำเร็จ: รูปที่ ${failed.join(', ')}\n` +
+        'สาเหตุที่พบบ่อยคือไฟล์นั้นถูกลบออกจาก Google Drive หรือสิทธิ์แชร์ถูกเปลี่ยน ' +
+        'ลองเปิดดูรูปนั้นในใบงานเพื่อตรวจสอบได้ครับ');
+    }
+
+    /* ---------------- the download itself ---------------- */
+
+    async function downloadPhotos(scope) {
+      if (downloadToken || downloadStarting) {
+        alert('กำลังดาวน์โหลดชุดก่อนหน้าอยู่ กรุณารอให้เสร็จก่อน');
+        return;
+      }
+      downloadStarting = true;
+      try {
+        await runPhotoDownload(scope);
+      } finally {
+        downloadStarting = false;
+      }
+    }
+
+    async function runPhotoDownload(scope) {
+      const photos = state.detailPhotos || [];
+      const task = state.detailPhotoTask || {};
+
+      let picked;
+      if (scope === 'selected') {
+        picked = Array.from(selectedPhotoIdx).sort((a, b) => a - b)
+          .map(i => ({ idx: i, entry: photos[i] }))
+          .filter(x => x.entry);
+        if (picked.length === 0) {
+          alert('ยังไม่ได้เลือกรูป — แตะที่รูปที่ต้องการก่อน แล้วค่อยกดดาวน์โหลด');
+          return;
+        }
+      } else {
+        picked = photos.map((entry, idx) => ({ idx, entry }));
+      }
+      if (picked.length === 0) return;
+
+      const jobId = sanitizeDownloadName(task.Job_ID || 'PTS');
+
+      // The folder picker needs the click to still be "fresh", so it runs
+      // before any await. Anything else here would silently kill it.
+      let dirHandle = null;
+      if (supportsDirectoryPicker()) {
+        try {
+          dirHandle = await window.showDirectoryPicker({ id: 'pts-site-photos', mode: 'readwrite', startIn: 'pictures' });
+        } catch (err) {
+          if (err && err.name === 'AbortError') return;   // user closed the folder dialog
+          dirHandle = null;                               // blocked by policy - use a fallback
+        }
+      }
+
+      const controller = new AbortController();
+      downloadToken = { controller };
+
+      try {
+        if (dirHandle) {
+          await downloadIntoFolder(picked, jobId, dirHandle, controller);
+        } else {
+          await downloadThenChooseTarget(picked, jobId, controller);
+        }
+      } catch (err) {
+        hideDownloadProgress();
+        if (err && err.name === 'AbortError') {
+          showSyncToast('ยกเลิกการดาวน์โหลดแล้ว');
+        } else {
+          alert('ดาวน์โหลดรูปไม่สำเร็จ\n\nอาจเป็นเพราะไฟล์ถูกลบออกจาก Google Drive หรือสิทธิ์แชร์ของโฟลเดอร์ถูกเปลี่ยน ' +
+            'ลองกดเปิดดูรูปในใบงานเพื่อตรวจสอบ หรือเปิดไฟล์ต้นฉบับใน Google Drive โดยตรงครับ');
+        }
+      } finally {
+        downloadToken = null;
+      }
+    }
+
+    /**
+     * Route 1 - write each photo straight into the folder the user chose.
+     *
+     * Photos are fetched a small batch at a time and then written in order.
+     * Downloading one at a time made an 80-photo album take about three times
+     * as long, while fetching the whole album first would put every byte in
+     * memory - the batch keeps both the wait and the memory small.
+     */
+    async function downloadIntoFolder(picked, jobId, dirHandle, controller) {
+      let done = 0;
+      let bytes = 0;
+      const failed = [];
+      const budget = makeFetchBudget();
+      const batchSize = Math.max(1, Math.min(fetchConcurrency(), picked.length));
+
+      showDownloadProgress(`กำลังบันทึกลงโฟลเดอร์ ${dirHandle.name}...`, `0/${picked.length} รูป`, 0, '');
+
+      for (let start = 0; start < picked.length; start += batchSize) {
+        if (controller.signal.aborted || budget.giveUp) break;
+        const batch = picked.slice(start, start + batchSize);
+
+        let blobs;
+        try {
+          blobs = await Promise.all(batch.map(item => fetchPhotoBlob(item.entry, controller.signal, budget)));
+        } catch (err) {
+          if (err && err.name === 'AbortError') break;
+          throw err;
+        }
+        blobs.forEach(blob => noteFetchResult(budget, !!blob));
+
+        for (let i = 0; i < batch.length; i++) {
+          const blob = blobs[i];
+          if (blob) {
+            try {
+              const handle = await dirHandle.getFileHandle(photoFileName(jobId, batch[i].idx, blob), { create: true });
+              const writable = await handle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+              bytes += blob.size;
+            } catch (err) {
+              // Folder went away, disk full, permission revoked mid-run
+              hideDownloadProgress();
+              alert(`เขียนไฟล์ลงโฟลเดอร์ "${dirHandle.name}" ไม่สำเร็จ (บันทึกไปแล้ว ${done - failed.length} รูป)\n\n` +
+                'อาจเป็นเพราะโฟลเดอร์ถูกย้าย/ลบ พื้นที่ดิสก์เต็ม หรือสิทธิ์เขียนถูกยกเลิก กรุณาลองใหม่แล้วเลือกโฟลเดอร์อีกครั้งครับ');
+              return;
+            }
+          } else {
+            failed.push(batch[i].idx + 1);
+          }
+          done++;
+        }
+
+        showDownloadProgress(
+          `กำลังบันทึกลงโฟลเดอร์ ${dirHandle.name}...`,
+          `${done}/${picked.length} รูป`,
+          (done / picked.length) * 100,
+          formatBytes(bytes)
+        );
+      }
+
+      hideDownloadProgress();
+
+      if (controller.signal.aborted) {
+        showSyncToast(`ยกเลิกแล้ว — บันทึกไปก่อนหน้า ${done - failed.length} รูป`);
+        return;
+      }
+      const ok = done - failed.length;
+      if (ok === 0) { alert(albumUnreachableMessage()); return; }
+      reportFailedPhotos(failed, picked.length);
+      if (failed.length === 0) {
+        showSyncToast(`บันทึก ${ok} รูปลงโฟลเดอร์ "${dirHandle.name}" แล้ว (${formatBytes(bytes)})`);
+      }
+    }
+
+    /**
+     * Routes 2 and 3 - fetch everything first, then let the user say where it
+     * goes. The destination is chosen by a fresh tap on the next dialog:
+     * iOS in particular refuses navigator.share() if the tap that started the
+     * work has already been "spent" on awaits.
+     */
+    async function downloadThenChooseTarget(picked, jobId, controller) {
+      const files = [];
+      const failed = [];
+      let done = 0;
+      let bytes = 0;
+      let hitCeiling = false;
+      const budget = makeFetchBudget();
+
+      showDownloadProgress(`กำลังเตรียมรูป 0/${picked.length}...`, `รหัสงาน: ${jobId}`, 0, '');
+
+      // A few at a time: parallel requests make Drive throttle and can stall a
+      // phone, while one at a time is needlessly slow on a good connection.
+      const queue = picked.slice();
+      const worker = async () => {
+        while (queue.length > 0) {
+          if (controller.signal.aborted || hitCeiling || budget.giveUp) return;
+          const item = queue.shift();
+          const blob = await fetchPhotoBlob(item.entry, controller.signal, budget);
+          noteFetchResult(budget, !!blob);
+          if (blob) {
+            if (bytes + blob.size > MEMORY_ROUTE_MAX_BYTES) { hitCeiling = true; return; }
+            files.push({ order: item.idx, file: new File([blob], photoFileName(jobId, item.idx, blob), { type: blob.type }) });
+            bytes += blob.size;
+          } else {
+            failed.push(item.idx + 1);
+          }
+          done++;
+          showDownloadProgress(
+            `กำลังเตรียมรูป ${done}/${picked.length}...`,
+            `รหัสงาน: ${jobId}`,
+            (done / picked.length) * 100,
+            formatBytes(bytes)
+          );
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(fetchConcurrency(), picked.length) }, worker));
+
+      hideDownloadProgress();
+      if (controller.signal.aborted) { showSyncToast('ยกเลิกการดาวน์โหลดแล้ว'); return; }
+      if (files.length === 0) { alert(albumUnreachableMessage()); return; }
+
+      if (hitCeiling) {
+        alert(`รูปชุดนี้มีขนาดรวมใหญ่มาก เครื่องอาจค้างถ้าโหลดทั้งหมดพร้อมกัน\n\n` +
+          `ระบบเตรียมให้ ${files.length} รูปแรก (${formatBytes(bytes)}) ก่อน — ` +
+          'บันทึกชุดนี้แล้วค่อยกลับมาเลือกรูปที่เหลือด้วยปุ่ม "เลือกรูป" อีกครั้งได้ครับ');
+      }
+
+      files.sort((a, b) => a.order - b.order);
+      pendingSaveFiles = files.map(f => f.file);
+      lastFetchReport = { failed: failed, total: picked.length };
+      openSaveTargetModal(bytes);
+    }
+
+    /* ---------------- choosing where the files go ---------------- */
+
+    function openSaveTargetModal(bytes) {
+      const modal = document.getElementById('saveTargetModal');
+      if (!modal) return;
+
+      const summary = document.getElementById('saveTargetSummary');
+      if (summary) {
+        summary.textContent = `${pendingSaveFiles.length} รูป · ${formatBytes(bytes)}` +
+          (lastFetchReport.failed.length > 0 ? ` (โหลดไม่สำเร็จ ${lastFetchReport.failed.length} รูป)` : '');
+      }
+
+      shareChunkSize = maxShareChunk(pendingSaveFiles);
+      updateSaveTargetButtons();
+      modal.classList.remove('hidden');
+    }
+
+    function updateSaveTargetButtons() {
+      const shareBtn = document.getElementById('saveTargetShareBtn');
+      const hint = document.getElementById('saveTargetHint');
+      const shareable = shareChunkSize > 0;
+
+      if (shareBtn) {
+        shareBtn.classList.toggle('hidden', !shareable);
+        if (shareable) {
+          // Some phones (iOS especially) refuse a big file set, so the album is
+          // handed over a chunk per tap - each tap is its own user gesture.
+          const batches = Math.ceil(pendingSaveFiles.length / shareChunkSize);
+          shareBtn.innerHTML = batches > 1
+            ? `<i class="fa-solid fa-folder-open mr-1.5"></i>เลือกที่เก็บรูป (เหลือ ${pendingSaveFiles.length} รูป · อีก ${batches} ชุด)`
+            : '<i class="fa-solid fa-folder-open mr-1.5"></i>เลือกที่เก็บรูป (คลังภาพ / ไฟล์ / Drive)';
+        }
+      }
+
+      if (hint) {
+        if (!shareable) {
+          hint.textContent = 'ไฟล์จะถูกบันทึกลงโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์ — ถ้าต้องการเลือกโฟลเดอร์เองทุกครั้ง ให้เปิด "ถามที่จัดเก็บไฟล์ก่อนดาวน์โหลด" ในการตั้งค่าเบราว์เซอร์';
+        } else if (pendingSaveFiles.length > shareChunkSize) {
+          hint.textContent = `เครื่องนี้รับได้ครั้งละ ${shareChunkSize} รูป กดปุ่มด้านบนซ้ำจนครบได้เลย — แต่ละครั้งเลือกที่เก็บได้อิสระ`;
+        } else {
+          hint.textContent = 'แนะนำ "เลือกที่เก็บรูป" — เลือกได้ทั้งคลังภาพ, แอปไฟล์ (เลือกโฟลเดอร์เองได้), Google Drive หรือส่งต่อทางแชต';
+        }
+      }
+    }
+
+    function closeSaveTargetModal() {
+      const modal = document.getElementById('saveTargetModal');
+      if (modal) modal.classList.add('hidden');
+      pendingSaveFiles = [];
+      shareChunkSize = 0;
+    }
+
+    async function saveFetchedPhotos(how) {
+      if (pendingSaveFiles.length === 0) { closeSaveTargetModal(); return; }
+
+      if (how === 'share' && shareChunkSize > 0) {
+        const chunk = pendingSaveFiles.slice(0, shareChunkSize);
+        try {
+          await navigator.share({ files: chunk, title: 'รูปภาพหน้างาน' });
+        } catch (err) {
+          // Backing out of the OS sheet is a decision, not a fault
+          if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
+          // The sheet refused the files outright - stop offering it and save instead
+          shareChunkSize = 0;
+          updateSaveTargetButtons();
+          alert('ระบบของเครื่องไม่รับไฟล์ชุดนี้ผ่านหน้าต่างแชร์\n\nระบบจะบันทึกลงโฟลเดอร์ดาวน์โหลดให้แทนครับ');
+          const rest = pendingSaveFiles.slice();
+          closeSaveTargetModal();
+          await saveFilesSequentially(rest);
+          reportFailedPhotos(lastFetchReport.failed, lastFetchReport.total);
+          return;
+        }
+
+        pendingSaveFiles = pendingSaveFiles.slice(chunk.length);
+        if (pendingSaveFiles.length === 0) {
+          closeSaveTargetModal();
+          showSyncToast('ส่งรูปให้เลือกที่เก็บครบแล้ว');
+          reportFailedPhotos(lastFetchReport.failed, lastFetchReport.total);
+        } else {
+          updateSaveTargetButtons();
+          showSyncToast(`ส่งแล้ว ${chunk.length} รูป — เหลืออีก ${pendingSaveFiles.length} รูป กดปุ่มเดิมต่อได้เลย`);
+        }
+        return;
+      }
+
+      const files = pendingSaveFiles.slice();
+      closeSaveTargetModal();
+      await saveFilesSequentially(files);
+      reportFailedPhotos(lastFetchReport.failed, lastFetchReport.total);
+    }
+
+    // Route 3 - one save at a time, spaced out so no browser drops any of them
+    async function saveFilesSequentially(files) {
+      if (!files || files.length === 0) return;
+      const controller = new AbortController();
+      downloadToken = { controller };
+      let saved = 0;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          if (controller.signal.aborted) break;
+          if (files.length > 1) {
+            showDownloadProgress(`กำลังบันทึก ${i + 1}/${files.length} รูป...`, files[i].name, ((i + 1) / files.length) * 100, '');
+          }
+          saveBlob(files[i], files[i].name);
+          saved++;
+          if (i < files.length - 1) await delay(SEQUENTIAL_SAVE_DELAY_MS);
+        }
+        showSyncToast(controller.signal.aborted
+          ? `ยกเลิกแล้ว — บันทึกไปก่อนหน้า ${saved} รูป`
+          : `บันทึก ${saved} รูปลงเครื่องแล้ว`);
+      } catch (err) {
+        alert(`บันทึกไฟล์ไม่สำเร็จ (บันทึกไปแล้ว ${saved} รูป)\n\nกรุณาลองใหม่อีกครั้งครับ`);
+      } finally {
+        downloadToken = null;
+        hideDownloadProgress();
+      }
+    }
+
+    // Save just the photo currently open in the lightbox
+    async function downloadCurrentLightboxPhoto() {
+      const entry = (state.lightboxPhotos || [])[state.lightboxIndex];
+      if (!entry) return;
+      const jobId = sanitizeDownloadName((state.lightboxLabel || 'PTS').split('·')[0]);
+      const btn = document.getElementById('lightboxDownloadBtn');
+      const original = btn ? btn.innerHTML : '';
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i>กำลังดาวน์โหลด...'; }
+      try {
+        const blob = await fetchPhotoBlob(entry);
+        if (!blob) throw new Error('fetch-failed');
+        const name = photoFileName(jobId, state.lightboxIndex, blob);
+        const file = new File([blob], name, { type: blob.type });
+
+        // On a phone this opens the OS sheet so the photo can go to the
+        // gallery or any folder; on a PC it saves straight away.
+        if (maxShareChunk([file]) > 0) {
+          try {
+            await navigator.share({ files: [file], title: name });
+            showSyncToast('ส่งรูปให้เลือกที่เก็บแล้ว');
+            return;
+          } catch (err) {
+            if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
+          }
+        }
+        saveBlob(blob, name);
+        showSyncToast('ดาวน์โหลดรูปเรียบร้อย');
+      } catch (err) {
+        alert('ดาวน์โหลดรูปนี้ไม่สำเร็จ — ลองกด "เปิดไฟล์ต้นฉบับใน Google Drive" แล้วบันทึกจากหน้านั้นแทนครับ');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
       }
     }
