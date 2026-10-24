@@ -225,6 +225,12 @@
             <span id="statusText" class="hidden lg:inline text-slate-300">Google Sheets Live</span>
           </div>
 
+          <!-- To-do list with a due/overdue counter -->
+          <button onclick="openTasksModal()" class="relative p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 border border-slate-700 shadow-sm active:scale-95 touch-target" title="งานที่ต้องทำ (Task) — กำหนดคนและวันที่">
+            <i class="fa-regular fa-bell text-slate-400"></i>
+            <span id="taskAlertBadge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center border border-slate-900 shadow"></span>
+          </button>
+
           <!-- Manage option lists (sub-departments / technicians / customers) -->
           <button onclick="openOptionsModal()" class="p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 border border-slate-700 shadow-sm active:scale-95 touch-target" title="ตั้งค่าตัวเลือก: ฝ่ายย่อย / รายชื่อช่าง / ลูกค้า">
             <i class="fa-solid fa-sliders text-slate-400"></i>
@@ -233,6 +239,15 @@
           <!-- Refresh Data Button -->
           <button onclick="fetchTasks({ fresh: true }).then(markActivity)" class="p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition duration-200 border border-slate-700 shadow-sm active:scale-95 touch-target" title="รีเฟรชข้อมูล">
             <i class="fa-solid fa-arrows-rotate text-slate-400" id="refreshIcon"></i>
+          </button>
+
+          <!-- Dedicated Task button, with the due/overdue count on it -->
+          <!-- Phones get the floating Task button instead; both here would push
+               "เปิดงานใหม่" off the edge of a 375px screen. -->
+          <button onclick="openTasksModal()" class="relative hidden sm:flex px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-white text-xs sm:text-sm font-bold shadow-md transition duration-200 items-center gap-1.5 sm:gap-2 border border-slate-600 active:scale-95 shrink-0" title="Task — งานที่ต้องทำ">
+            <i class="fa-solid fa-list-check text-xs sm:text-sm text-pts-300"></i>
+            <span>Task</span>
+            <span id="taskBtnCount" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center"></span>
           </button>
 
           <!-- Add Job Task Button (แสดงที่ Header ทั้งบนมือถือและคอมพิวเตอร์อย่างสวยงามและเป็นระเบียบ) -->
@@ -372,6 +387,24 @@
         <p class="text-[11px] text-amber-800 mt-1 font-semibold">⚠️ ต้องเร่งส่งมอบ</p>
       </div>
 
+    </div>
+
+    <!-- TASK DUE / OVERDUE BANNER (ขึ้นเองเมื่อมีงานถึงกำหนด) -->
+    <div id="taskAlertBanner" class="hidden rounded-2xl border p-3 sm:p-3.5 shadow-xs transition">
+      <div class="flex flex-wrap items-center justify-between gap-2.5">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span id="taskAlertIcon" class="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0">
+            <i class="fa-solid fa-bell"></i>
+          </span>
+          <div class="min-w-0">
+            <h4 id="taskAlertTitle" class="text-sm font-bold">-</h4>
+            <p id="taskAlertDetail" class="text-[11px] font-medium opacity-80 truncate">-</p>
+          </div>
+        </div>
+        <button type="button" onclick="openTasksModal('due')" class="px-3.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold border border-slate-300 shadow-xs transition flex items-center gap-1.5 shrink-0">
+          <i class="fa-solid fa-list-check text-slate-500"></i> ดูงานที่ต้องทำ
+        </button>
+      </div>
     </div>
 
     <!-- ACTIVE STATUS FILTER BANNER (แสดงเมื่อเลือกสถานะชัดเจน) -->
@@ -997,7 +1030,14 @@
     </div>
   </div>
 
-  <!-- MOBILE FLOATING ACTION BUTTON (the header keeps only icons on phones) -->
+  <!-- MOBILE FLOATING ACTION BUTTONS (the header keeps only icons on phones) -->
+  <button onclick="openTasksModal()" aria-label="Task งานที่ต้องทำ"
+          class="sm:hidden fixed bottom-[88px] right-4 z-40 h-12 pl-4 pr-5 rounded-full bg-slate-800 text-white text-sm font-bold shadow-2xl shadow-slate-900/40 border border-slate-600 flex items-center gap-2 active:scale-95 transition">
+    <i class="fa-solid fa-list-check text-pts-300"></i>
+    <span>Task</span>
+    <span id="taskFabCount" class="hidden min-w-[20px] h-5 px-1 rounded-full bg-rose-600 text-white text-[11px] font-bold flex items-center justify-center"></span>
+  </button>
+
   <button onclick="openCreateModal()" aria-label="เปิดงานใหม่"
           class="sm:hidden fixed bottom-5 right-4 z-40 h-14 pl-4 pr-5 rounded-full bg-gradient-to-r from-pts-800 to-pts-700 text-white text-sm font-bold shadow-2xl shadow-pts-900/40 border border-pts-600 flex items-center gap-2 active:scale-95 transition">
     <i class="fa-solid fa-plus"></i>
@@ -1476,7 +1516,131 @@
     </div>
   </div>
 
+  <!-- MODAL 10: TASKS / TO-DO LIST (โครงเดียวกับแอพงานขาย) -->
+  <div id="tasksModal" class="fixed inset-0 z-[65] hidden bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94dvh] sm:max-h-[92vh]">
+
+      <div class="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between gap-3 border-b border-slate-800 shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-10 h-10 rounded-xl bg-pts-800 text-white flex items-center justify-center text-lg shrink-0"><i class="fa-solid fa-list-check"></i></span>
+          <div class="min-w-0">
+            <h3 class="text-base sm:text-lg font-bold">Task — งานที่ต้องทำ</h3>
+            <p class="text-xs text-slate-400 truncate" id="taskHeaderSub">-</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <div class="hidden sm:flex items-center gap-1.5">
+            <span class="text-[11px] text-slate-400">ฉันคือ</span>
+            <select id="taskMeSelect" onchange="setMyName(this.value)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-pts-800"></select>
+          </div>
+          <button type="button" onclick="closeTasksModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+        </div>
+      </div>
+
+      <!-- Scope: whose tasks am I looking at -->
+      <div class="px-3 sm:px-4 pt-3 shrink-0 space-y-2.5">
+        <div class="sm:hidden flex items-center gap-2">
+          <span class="text-[11px] font-bold text-slate-500 shrink-0">ฉันคือ</span>
+          <select id="taskMeSelectMobile" onchange="setMyName(this.value)" class="flex-1 px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-pts-800"></select>
+        </div>
+
+        <div class="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl">
+          <button type="button" data-scope="mine" onclick="setTaskScope('mine')" class="px-2 py-2 rounded-lg text-xs font-bold transition">ของฉัน <span id="taskScopeCountMine" class="font-mono"></span></button>
+          <button type="button" data-scope="byme" onclick="setTaskScope('byme')" class="px-2 py-2 rounded-lg text-xs font-bold transition">ฉันมอบหมาย <span id="taskScopeCountByme" class="font-mono"></span></button>
+          <button type="button" data-scope="team" onclick="setTaskScope('team')" class="px-2 py-2 rounded-lg text-xs font-bold transition">ทั้งทีม <span id="taskScopeCountTeam" class="font-mono"></span></button>
+        </div>
+
+        <button type="button" id="taskNewBtn" onclick="toggleTaskForm()" class="w-full px-4 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-sm font-bold shadow-md transition active:scale-95">
+          <i class="fa-solid fa-plus mr-1.5"></i>เพิ่ม Task
+        </button>
+      </div>
+
+      <!-- Add / edit form -->
+      <div id="taskFormBox" class="hidden p-3 sm:p-4 mt-2.5 mx-3 sm:mx-4 bg-slate-50 border border-slate-300 rounded-2xl shrink-0 space-y-2.5">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+          <div class="md:col-span-12">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">ชื่อ Task *</label>
+            <input type="text" id="taskTitleInput" maxlength="200" placeholder="เช่น ส่งรายงานตรวจระบบให้ลูกค้า" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+          <div class="md:col-span-4">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">ผู้รับผิดชอบ *</label>
+            <input type="text" id="taskAssigneeInput" list="technicianOptions" autocomplete="off" maxlength="120" placeholder="เลือกหรือพิมพ์ชื่อ" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">วันที่ต้องทำ *</label>
+            <input type="date" id="taskDueInput" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">เวลา</label>
+            <input type="time" id="taskTimeInput" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800">
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">ความสำคัญ</label>
+            <select id="taskPriorityInput" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-pts-800">
+              <option value="Low">Low (ไม่เร่ง)</option>
+              <option value="Normal" selected>Normal (ปกติ)</option>
+              <option value="High">High (สูง)</option>
+              <option value="Urgent">Urgent (ด่วนมาก)</option>
+            </select>
+          </div>
+          <div class="md:col-span-5">
+            <label class="flex items-center justify-between text-[11px] font-bold text-slate-600 mb-1">
+              <span>ประเภท Task</span>
+              <button type="button" onclick="openOptionsModal('task_types')" class="text-[10px] font-semibold text-pts-800 hover:underline"><i class="fa-solid fa-gear mr-0.5"></i>จัดการ</button>
+            </label>
+            <select id="taskTypeInput" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-pts-800"></select>
+          </div>
+          <div class="md:col-span-7">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">ผูกกับใบงาน (ถ้ามี)</label>
+            <select id="taskJobInput" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800"></select>
+          </div>
+          <div class="md:col-span-12">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">รายละเอียด</label>
+            <textarea id="taskDetailInput" rows="2" maxlength="1000" placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800"></textarea>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" onclick="resetTaskForm(true)" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition">ยกเลิก</button>
+          <button type="button" id="taskSaveBtn" onclick="submitTaskForm()" class="px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md transition active:scale-95">
+            <i class="fa-solid fa-floppy-disk mr-1.5"></i><span id="taskSaveBtnLabel">บันทึก Task</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Search + filters -->
+      <div class="px-3 sm:px-4 py-2.5 mt-2.5 bg-white border-y border-slate-200 flex flex-wrap items-center gap-2 shrink-0">
+        <div class="relative flex-1 min-w-[160px]">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+          <input type="text" id="taskSearchInput" oninput="onTaskSearch(this.value)" placeholder="ค้นหา Task / ผู้รับผิดชอบ / ใบงาน" autocomplete="off" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-pts-800/30">
+        </div>
+        <select id="taskFilterAssignee" onchange="renderTasksList()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-pts-800/30"></select>
+        <select id="taskFilterPriority" onchange="renderTasksList()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-pts-800/30">
+          <option value="">ทุกความสำคัญ</option>
+          <option value="Urgent">Urgent</option>
+          <option value="High">High</option>
+          <option value="Normal">Normal</option>
+          <option value="Low">Low</option>
+        </select>
+      </div>
+
+      <div id="tasksList" class="p-3 sm:p-4 space-y-3 flex-1 overflow-y-auto scroll-body bg-slate-50/60"></div>
+
+      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 safe-bottom shrink-0">
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" id="taskNotifyBtn" onclick="enableTaskNotifications()" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+            <i class="fa-regular fa-bell mr-1.5"></i>เปิดแจ้งเตือนบนเครื่องนี้
+          </button>
+          <button type="button" id="taskTestPushBtn" onclick="sendTestPush()" class="hidden px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+            <i class="fa-solid fa-paper-plane mr-1.5"></i>ทดสอบส่ง
+          </button>
+        </div>
+        <button type="button" onclick="closeTasksModal()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition">ปิดหน้าต่าง</button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=3.9"></script>
+  <script src="script.js?v=4.2"></script>
 </body>
 </html>

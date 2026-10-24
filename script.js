@@ -438,6 +438,10 @@ const MAX_PHOTOS_PER_TASK = 100;
       initPhotoDropZones();
       renderOptionLists();   // defaults immediately, server lists once fetched
       fetchOptions();
+      fetchJobTasks();       // fills the bell badge and the due/overdue banner
+      listenToServiceWorker();
+      // Keep the device registration current (the owner's name can change)
+      if (pushSupported()) setTimeout(() => { fetchPushStatus().then(refreshPushRegistration); }, 3000);
     });
 
     function loadState() {
@@ -757,6 +761,9 @@ const MAX_PHOTOS_PER_TASK = 100;
           quietPolls = 0;
           lastFullFetch = Date.now();
           await fetchTasks({ silent: true, fresh: changed });
+          // The to-do list bumps the same revision counter, so it rides along
+          // with the job refresh instead of needing a poll of its own.
+          await fetchJobTasks({ silent: true });
         } else {
           quietPolls++;
           state.lastError = error || null;
@@ -3346,12 +3353,15 @@ const MAX_PHOTOS_PER_TASK = 100;
     const OPTION_GROUPS = {
       sub_departments: { label: 'ฝ่ายย่อย (Sub-Department)', field: 'Sub_Department', icon: 'fa-sitemap', placeholder: 'เช่น PM Sprinkler, งานติดตั้ง', hint: 'แสดงเป็นตัวเลือกในฟอร์มเปิดงาน/แก้ไข และตัวกรองหน้าหลัก' },
       technicians:     { label: 'หัวหน้าช่าง / ผู้รับผิดชอบ', field: 'Technician_In_Charge', icon: 'fa-helmet-safety', placeholder: 'เช่น ช่างสมชาย', hint: 'พิมพ์ในช่องหัวหน้าช่างแล้วระบบจะแนะนำชื่อให้' },
-      customers:       { label: 'ลูกค้า / ไซต์งาน', field: 'Project_Name', icon: 'fa-building', placeholder: 'เช่น บริษัท ... จำกัด (นิคม ...)', hint: 'พิมพ์ในช่องชื่อไซต์แล้วระบบจะแนะนำ และดึงสถานที่/เบอร์จากใบงานล่าสุดให้' }
+      customers:       { label: 'ลูกค้า / ไซต์งาน', field: 'Project_Name', icon: 'fa-building', placeholder: 'เช่น บริษัท ... จำกัด (นิคม ...)', hint: 'พิมพ์ในช่องชื่อไซต์แล้วระบบจะแนะนำ และดึงสถานที่/เบอร์จากใบงานล่าสุดให้' },
+      // `from` says which list the "values already in use" come from: most
+      // options are filled in on jobs, task types only ever appear on tasks.
+      task_types:      { label: 'ประเภท Task', field: 'Type', from: 'jobTasks', icon: 'fa-tag', placeholder: 'เช่น ติดต่อลูกค้า, เข้าหน้างาน', hint: 'ตัวเลือกประเภทในฟอร์มเพิ่ม Task (ชุดเดียวกับแอพงานขาย)' }
     };
     const LOCAL_OPTIONS_KEY = 'pts_custom_options';
     const ADD_NEW_VALUE = '__add_new__';
 
-    state.options = { sub_departments: [], technicians: [], customers: [] };
+    state.options = { sub_departments: [], technicians: [], customers: [], task_types: [] };
     state.optionsSource = 'unknown';   // 'server' | 'local' | 'unknown'
 
     function loadLocalOptions() {
@@ -3361,7 +3371,9 @@ const MAX_PHOTOS_PER_TASK = 100;
         Object.keys(OPTION_GROUPS).forEach(k => { out[k] = Array.isArray(parsed[k]) ? parsed[k] : []; });
         return out;
       } catch (err) {
-        return { sub_departments: [], technicians: [], customers: [] };
+        const out = {};
+        Object.keys(OPTION_GROUPS).forEach(k => { out[k] = []; });
+        return out;
       }
     }
 
@@ -3395,9 +3407,10 @@ const MAX_PHOTOS_PER_TASK = 100;
     }
 
     // Distinct values a field currently holds across all jobs, with usage counts
-    function valuesInUse(field) {
+    function valuesInUse(field, from) {
       const counts = {};
-      (state.tasks || []).forEach(t => {
+      const rows = from === 'jobTasks' ? (state.jobTasks || []) : (state.tasks || []);
+      rows.forEach(t => {
         const v = cleanOptionValue(t[field]);
         if (v) counts[v] = (counts[v] || 0) + 1;
       });
@@ -3406,12 +3419,18 @@ const MAX_PHOTOS_PER_TASK = 100;
 
     // Configured list first (in the order the team chose), then anything jobs
     // still use that is not on the list, alphabetically.
+    function defaultOptionList(key) {
+      if (key === 'sub_departments') return DEFAULT_SUB_DEPTS.slice();
+      if (key === 'task_types') return DEFAULT_TASK_TYPES.slice();
+      return [];
+    }
+
     function getOptionList(key) {
       const group = OPTION_GROUPS[key];
       const configured = (state.options[key] || []).slice();
-      const base = configured.length > 0 ? configured : (key === 'sub_departments' ? DEFAULT_SUB_DEPTS.slice() : []);
+      const base = configured.length > 0 ? configured : defaultOptionList(key);
       const seen = new Set(base);
-      const extras = Object.keys(valuesInUse(group.field)).filter(v => !seen.has(v)).sort((a, b) => a.localeCompare(b, 'th'));
+      const extras = Object.keys(valuesInUse(group.field, group.from)).filter(v => !seen.has(v)).sort((a, b) => a.localeCompare(b, 'th'));
       return base.concat(extras);
     }
 
@@ -3585,7 +3604,7 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (ok) showSyncToast('เพิ่มฝ่ายย่อย "' + name + '" แล้ว');
     }
 
-    async function addOptionValue(key, value) {
+    async function addOptionValue(key, value, quiet) {
       const name = cleanOptionValue(value);
       if (!name) return false;
       // Seed from the effective list so the first custom entry does not wipe the defaults
@@ -3593,14 +3612,20 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (list.includes(name)) return true;
       const next = {};
       next[key] = list.concat([name]);
-      return persistOptions(next);
+      return persistOptions(next, quiet);
     }
 
     /**
      * Saves the given lists ({key: [...]}) - to the sheet when Code.gs supports
      * it, otherwise to this browser. Returns true on success.
      */
-    async function persistOptions(partial) {
+    /**
+     * `quiet` is for best-effort background updates - adding a newly typed
+     * technician while saving a task, say. The task itself already saved, so
+     * failing to also file the name must not raise an alarm about a failure
+     * the user cannot act on.
+     */
+    async function persistOptions(partial, quiet) {
       const keys = Object.keys(partial).filter(k => OPTION_GROUPS[k]);
       if (keys.length === 0) return false;
 
@@ -3614,7 +3639,7 @@ const MAX_PHOTOS_PER_TASK = 100;
           });
           return true;
         }
-        alert('บันทึกตัวเลือกลง Google Sheet ไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
+        if (!quiet) alert('บันทึกตัวเลือกลง Google Sheet ไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
         return false;
       }
 
@@ -3664,7 +3689,7 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       Object.keys(OPTION_GROUPS).forEach(key => {
         const group = OPTION_GROUPS[key];
-        const inUse = valuesInUse(group.field);
+        const inUse = valuesInUse(group.field, group.from);
         const list = optionsDraft[key];
 
         const section = document.createElement('div');
@@ -4565,4 +4590,1013 @@ const MAX_PHOTOS_PER_TASK = 100;
       } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = original; }
       }
+    }
+
+    /* =======================================================================
+     * TASKS / TO-DO LIST
+     *
+     * Deliberately mirrors the sales app (PTS Sales): Open/Done status,
+     * yyyy-MM-dd dates with an optional HH:mm time, Low/Normal/High/Urgent
+     * priority, a type, and the same three views - ของฉัน / ฉันมอบหมาย /
+     * ทั้งทีม. Anyone who uses one app already knows this one.
+     *
+     * The sales app knows who you are from its login. This app has none, so
+     * "who am I" is a name picked once and kept on the device. That is enough
+     * to drive the three views and to fill in Created_By / Done_By; it is a
+     * convenience, not a security boundary, and the whole team sees every task
+     * either way.
+     * ===================================================================== */
+    const TASK_OPEN = 'Open';
+    const TASK_DONE = 'Done';
+    const TASK_PRIORITIES = ['Low', 'Normal', 'High', 'Urgent'];
+    const DEFAULT_TASK_TYPES = ['ติดต่อลูกค้า', 'เข้าหน้างาน', 'ทำรายงาน', 'เบิก/สั่งอะไหล่', 'ส่งเอกสาร', 'ตรวจรับงาน', 'อื่นๆ'];
+    const MY_NAME_KEY = 'pts_my_name';
+    const TASK_SEEN_KEY = 'pts_task_seen';
+    const TASK_NOTIFIED_KEY = 'pts_task_notified';
+
+    state.jobTasks = [];
+    let taskEditingId = null;
+    let tasksFetched = false;
+    let taskScope = 'team';          // switched to 'mine' once a name is set
+    let taskQuery = '';
+    let taskShowDone = false;
+    let taskSeenMap = null;
+
+    /* ---------------- who am I ---------------- */
+
+    function myName() {
+      try { return cleanOptionValue(localStorage.getItem(MY_NAME_KEY) || ''); }
+      catch (err) { return ''; }
+    }
+
+    function setMyName(name) {
+      const clean = cleanOptionValue(name);
+      const before = myName();
+      try { localStorage.setItem(MY_NAME_KEY, clean); } catch (err) {}
+      // The server routes notifications by name, so the device registration
+      // has to follow a name change or alerts would go to the old person.
+      if (clean && clean !== before && taskNotifyState() === 'granted') {
+        enablePushOnThisDevice().then(updateNotifyButton);
+      }
+      // Without a name the personal views are meaningless - show the team view
+      if (!clean && taskScope !== 'team') taskScope = 'team';
+      if (clean && taskScope === 'team') taskScope = 'mine';
+      renderMyNamePickers();
+      refreshTaskViews();
+    }
+
+    function renderMyNamePickers() {
+      const me = myName();
+      const names = getOptionList('technicians');
+      ['taskMeSelect', 'taskMeSelectMobile'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        sel.innerHTML = '';
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = 'ยังไม่ได้เลือก';
+        sel.appendChild(none);
+        const list = me && !names.includes(me) ? names.concat([me]) : names;
+        list.forEach(n => {
+          const o = document.createElement('option');
+          o.value = n;
+          o.textContent = n;
+          sel.appendChild(o);
+        });
+        sel.value = me;
+      });
+    }
+
+    /* ---------------- date / time helpers ---------------- */
+
+    function todayStr() {
+      const d = new Date();
+      const p = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    }
+
+    function nowHHMM() {
+      const d = new Date();
+      const p = n => String(n).padStart(2, '0');
+      return p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    function addDaysStr(iso, n) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+      if (!m) return '';
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n);
+      const p = x => String(x).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    }
+
+    // Accepts yyyy-MM-dd (the stored shape) and dd/MM/yyyy (typed in the sheet)
+    function taskDateOnly(value) {
+      const s = String(value || '').replace(/^'/, '').trim();
+      let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+      if (m) return m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
+      m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+      if (m) return m[3] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[1]).padStart(2, '0');
+      return '';
+    }
+
+    function taskHHMM(value) {
+      const m = /^(\d{1,2}):(\d{2})/.exec(String(value || '').replace(/^'/, '').trim());
+      if (!m) return '';
+      if (Number(m[1]) > 23 || Number(m[2]) > 59) return '';
+      return String(m[1]).padStart(2, '0') + ':' + m[2];
+    }
+
+    function taskDateThai(iso) {
+      const d = taskDateOnly(iso);
+      return d ? d.split('-').reverse().join('/') : '';
+    }
+
+    function daysBetweenStr(fromIso, toIso) {
+      const a = taskDateOnly(fromIso), b = taskDateOnly(toIso);
+      if (!a || !b) return null;
+      const pa = a.split('-').map(Number), pb = b.split('-').map(Number);
+      return Math.round((new Date(pb[0], pb[1] - 1, pb[2]) - new Date(pa[0], pa[1] - 1, pa[2])) / 86400000);
+    }
+
+    const taskIsDone = t => String(t.Status || '').trim() === TASK_DONE;
+
+    /**
+     * How a task reads on screen - same buckets and wording as the sales app.
+     * A task due today with a time that has passed counts as overdue, which is
+     * the whole point of carrying a time at all.
+     */
+    function taskDue(t) {
+      if (taskIsDone(t)) return { key: 'done', tone: 'green', label: 'เสร็จแล้ว' };
+      const d = taskDateOnly(t.Due_Date), tm = taskHHMM(t.Due_Time), today = todayStr();
+      const at = tm ? ' ' + tm + ' น.' : '';
+      if (!d) return { key: 'later', tone: 'slate', label: 'ไม่ระบุวัน' };
+      if (d < today) return { key: 'overdue', tone: 'red', label: 'เกินกำหนด ' + daysBetweenStr(d, today) + ' วัน' };
+      if (d === today) {
+        if (tm && nowHHMM() > tm) return { key: 'overdue', tone: 'red', label: 'เลยเวลา' + at };
+        return { key: 'today', tone: 'amber', label: 'วันนี้' + at };
+      }
+      if (d === addDaysStr(today, 1)) return { key: 'soon', tone: 'blue', label: 'พรุ่งนี้' + at };
+      return { key: 'later', tone: 'slate', label: taskDateThai(d) + at };
+    }
+
+    const priorityRank = p => {
+      const i = TASK_PRIORITIES.indexOf(String(p || 'Normal'));
+      return i === -1 ? 1 : (TASK_PRIORITIES.length - 1 - i);   // Urgent first
+    };
+    const taskSortKey = t => taskDateOnly(t.Due_Date) + ' ' + (taskHHMM(t.Due_Time) || '24:00');
+    const byDue = (a, b) => taskSortKey(a).localeCompare(taskSortKey(b)) || priorityRank(a.Priority) - priorityRank(b.Priority);
+
+    /* ---------------- unread dot ---------------- */
+
+    const taskStamp = t => String(t.Updated_At || t.Created_At || '');
+
+    function readTaskSeen() {
+      if (taskSeenMap) return taskSeenMap;
+      let raw = null;
+      try { raw = localStorage.getItem(TASK_SEEN_KEY); } catch (err) {}
+      if (raw) {
+        try { taskSeenMap = JSON.parse(raw) || {}; } catch (err) { taskSeenMap = {}; }
+        return taskSeenMap;
+      }
+      // First run on this device: treat everything already there as read, or
+      // the whole list would light up at once and mean nothing.
+      taskSeenMap = {};
+      (state.jobTasks || []).forEach(t => { taskSeenMap[t.Task_ID] = taskStamp(t); });
+      writeTaskSeen();
+      return taskSeenMap;
+    }
+
+    function writeTaskSeen() {
+      const live = {};
+      (state.jobTasks || []).forEach(t => {
+        if (taskSeenMap[t.Task_ID] !== undefined) live[t.Task_ID] = taskSeenMap[t.Task_ID];
+      });
+      taskSeenMap = live;   // drop ids that no longer exist
+      try { localStorage.setItem(TASK_SEEN_KEY, JSON.stringify(taskSeenMap)); } catch (err) {}
+    }
+
+    function isTaskUnread(t) {
+      const me = myName();
+      if (taskIsDone(t) || !me || cleanOptionValue(t.Assignee) !== me) return false;
+      return readTaskSeen()[t.Task_ID] !== taskStamp(t);
+    }
+
+    function markTaskRead(t) {
+      readTaskSeen()[t.Task_ID] = taskStamp(t);
+      writeTaskSeen();
+    }
+
+    /* ---------------- counts ---------------- */
+
+    // Tasks that need attention now. With a name set this is "mine"; without
+    // one it is the whole team, so the button still means something.
+    function myTaskAlerts() {
+      const me = myName();
+      return (state.jobTasks || [])
+        .filter(t => !taskIsDone(t) &&
+          (!me || cleanOptionValue(t.Assignee) === me) &&
+          ['overdue', 'today'].includes(taskDue(t).key))
+        .sort(byDue);
+    }
+
+    function taskCounts() {
+      const c = { late: 0, today: 0, soon: 0, open: 0, done: 0 };
+      (state.jobTasks || []).forEach(t => {
+        if (taskIsDone(t)) { c.done++; return; }
+        c.open++;
+        const k = taskDue(t).key;
+        if (k === 'overdue') c.late++;
+        else if (k === 'today') c.today++;
+        else if (k === 'soon') c.soon++;
+      });
+      return c;
+    }
+
+    function scopeFilter(scope) {
+      const me = myName();
+      if (!me) return () => true;
+      if (scope === 'mine') return t => cleanOptionValue(t.Assignee) === me;
+      if (scope === 'byme') return t => cleanOptionValue(t.Created_By) === me && cleanOptionValue(t.Assignee) !== me;
+      return () => true;
+    }
+
+    /* ---------------- server ---------------- */
+
+    async function fetchJobTasks(options) {
+      options = options || {};
+      if (state.dbMode === 'mock' || !state.apiUrl) return false;
+
+      const { json } = await apiGetDetailed({ tasks: '1' });
+      if (!json || json.status !== 'success' || !Array.isArray(json.tasks)) return false;
+
+      state.jobTasks = json.tasks;
+      tasksFetched = true;
+      refreshTaskViews();
+      if (!options.silent) notifyDueTasks();
+      return true;
+    }
+
+    function refreshTaskViews() {
+      updateTaskAlertUi();
+      if (!document.getElementById('tasksModal').classList.contains('hidden')) {
+        renderTaskAssigneeFilter();
+        renderScopeTabs();
+        renderTasksList();
+      }
+    }
+
+    async function saveJobTask(task) {
+      const { json, error } = await apiPost({ action: 'TASK_SAVE', task: { ...task, Actor: myName() } });
+      if (!json || json.status !== 'success') {
+        alert('บันทึก Task ไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
+        return false;
+      }
+      await fetchJobTasks({ silent: true });
+      markActivity();
+      return true;
+    }
+
+    async function deleteJobTask(taskId) {
+      const { json, error } = await apiPost({ action: 'TASK_DELETE', task_id: taskId });
+      if (!json || json.status !== 'success') {
+        alert('ลบ Task ไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
+        return false;
+      }
+      await fetchJobTasks({ silent: true });
+      markActivity();
+      return true;
+    }
+
+    /* ---------------- header badge + banner ---------------- */
+
+    function updateTaskAlertUi() {
+      const alerts = myTaskAlerts();
+      const urgent = alerts.length;
+      const text = urgent > 99 ? '99+' : String(urgent);
+
+      ['taskAlertBadge', 'taskBtnCount', 'taskFabCount'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = text;
+        el.classList.toggle('hidden', urgent === 0);
+        el.classList.toggle('flex', urgent > 0);
+      });
+
+      const banner = document.getElementById('taskAlertBanner');
+      if (!banner) return;
+      if (urgent === 0) { banner.classList.add('hidden'); return; }
+
+      const over = alerts.filter(t => taskDue(t).key === 'overdue').length;
+      const late = over > 0;
+      banner.className = 'rounded-2xl border p-3 sm:p-3.5 shadow-xs transition ' +
+        (late ? 'bg-rose-50 border-rose-300 text-rose-900' : 'bg-amber-50 border-amber-300 text-amber-900');
+
+      const icon = document.getElementById('taskAlertIcon');
+      if (icon) {
+        icon.className = 'w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 ' +
+          (late ? 'bg-rose-200 text-rose-800' : 'bg-amber-200 text-amber-900');
+        icon.innerHTML = `<i class="fa-solid ${late ? 'fa-triangle-exclamation' : 'fa-bell'}"></i>`;
+      }
+
+      const me = myName();
+      const parts = [];
+      if (over > 0) parts.push(`เกินกำหนด ${over} รายการ`);
+      if (urgent - over > 0) parts.push(`ครบกำหนดวันนี้ ${urgent - over} รายการ`);
+      const titleEl = document.getElementById('taskAlertTitle');
+      if (titleEl) titleEl.textContent = (me ? 'Task ของคุณ — ' : 'Task ของทีม — ') + parts.join(' · ');
+
+      const detailEl = document.getElementById('taskAlertDetail');
+      if (detailEl) {
+        detailEl.textContent = alerts.slice(0, 3)
+          .map(t => `${t.Title} (${taskDue(t).label})`).join(' · ');
+      }
+      banner.classList.remove('hidden');
+    }
+
+    /* ---------------- notification ---------------- */
+
+    function taskNotifyState() {
+      if (!('Notification' in window)) return 'unsupported';
+      return Notification.permission;
+    }
+
+    function updateNotifyButton() {
+      const btn = document.getElementById('taskNotifyBtn');
+      if (!btn) return;
+      const s = taskNotifyState();
+      if (s === 'unsupported') { btn.classList.add('hidden'); return; }
+      btn.classList.remove('hidden');
+
+      // Whether the "test" button is useful depends on real push being live
+      const testBtn = document.getElementById('taskTestPushBtn');
+      const pushLive = !!(pushConfig && pushConfig.ready && pushConfig.registered);
+      if (testBtn) testBtn.classList.toggle('hidden', !pushLive);
+
+      if (s === 'granted') {
+        btn.innerHTML = pushLive
+          ? '<i class="fa-solid fa-bell mr-1.5 text-emerald-600"></i>แจ้งเตือนแม้ปิดแอป: เปิดอยู่'
+          : '<i class="fa-solid fa-bell mr-1.5 text-amber-600"></i>แจ้งเตือนเฉพาะตอนเปิดแอป';
+        btn.disabled = pushLive;
+        btn.classList.toggle('opacity-70', pushLive);
+        btn.classList.toggle('cursor-default', pushLive);
+        return;
+      }
+      if (s === 'denied') {
+        btn.innerHTML = '<i class="fa-solid fa-bell-slash mr-1.5 text-rose-500"></i>ถูกปิดไว้ในตั้งค่าเบราว์เซอร์';
+        btn.disabled = true;
+        btn.classList.add('opacity-70', 'cursor-default');
+      } else {
+        btn.innerHTML = '<i class="fa-regular fa-bell mr-1.5"></i>เปิดแจ้งเตือนบนเครื่องนี้';
+        btn.disabled = false;
+        btn.classList.remove('opacity-70', 'cursor-default');
+      }
+    }
+
+    async function enableTaskNotifications() {
+      if (!('Notification' in window)) {
+        alert('เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน — ระบบจะยังเตือนผ่านตัวเลขบนปุ่ม Task และแถบสีด้านบนตามปกติครับ');
+        return;
+      }
+      if (!myName()) {
+        alert('กรุณาเลือกก่อนว่า "ฉันคือ" ใคร\n\nระบบจะได้ส่งเฉพาะงานของคุณมาที่เครื่องนี้ครับ');
+        const sel = document.getElementById(isMobileViewport() ? 'taskMeSelectMobile' : 'taskMeSelect');
+        if (sel) sel.focus();
+        return;
+      }
+
+      const result = await Notification.requestPermission();
+      updateNotifyButton();
+      if (result === 'granted') {
+        // Real push if the server is set up; otherwise in-app alerts only
+        const res = await enablePushOnThisDevice();
+        updateNotifyButton();
+        if (res.ok) {
+          showSyncToast('เปิดแจ้งเตือนแม้ปิดแอปแล้ว');
+        } else if (res.reason === 'server') {
+          showSyncToast('เปิดแจ้งเตือนแล้ว (เฉพาะตอนเปิดแอปค้างไว้)');
+          alert('เปิดแจ้งเตือนบนเครื่องนี้แล้ว แต่ยังเตือนได้เฉพาะตอนเปิดแอปค้างไว้\n\n' +
+            'ถ้าต้องการให้เตือนแม้ปิดแอป ต้องเปิด Apps Script ของชีตนี้ แล้วรันฟังก์ชัน setupPush หนึ่งครั้งครับ');
+        } else {
+          showSyncToast('เปิดแจ้งเตือนบนเครื่องนี้แล้ว');
+        }
+        notifyDueTasks(true);
+      } else if (result === 'denied') {
+        alert('การแจ้งเตือนถูกปฏิเสธ\n\nถ้าเปลี่ยนใจ เปิดได้ที่ไอคอนหน้าช่อง URL แล้วอนุญาต "การแจ้งเตือน" ครับ');
+      }
+    }
+
+    // One notification per task per day, so a tab left open does not pop up on
+    // every sync tick.
+    function notifyDueTasks(force) {
+      if (taskNotifyState() !== 'granted') return;
+      const stamp = todayStr();
+      let seen = {};
+      try { seen = JSON.parse(localStorage.getItem(TASK_NOTIFIED_KEY) || '{}'); } catch (err) {}
+
+      const fresh = myTaskAlerts().filter(t => force || seen[t.Task_ID] !== stamp);
+      if (fresh.length === 0) return;
+
+      try {
+        const first = fresh[0];
+        const body = fresh.length === 1
+          ? `${first.Title}${first.Assignee ? ' — ' + first.Assignee : ''}\n${taskDue(first).label}`
+          : fresh.slice(0, 3).map(t => `• ${t.Title} (${taskDue(t).label})`).join('\n') +
+            (fresh.length > 3 ? `\n…และอีก ${fresh.length - 3} รายการ` : '');
+        new Notification('PTS — Task ' + fresh.length + ' รายการ', { body: body, tag: 'pts-tasks', icon: 'logo.jpg' });
+
+        const next = {};
+        (state.jobTasks || []).forEach(t => {
+          next[t.Task_ID] = fresh.some(f => f.Task_ID === t.Task_ID) ? stamp : (seen[t.Task_ID] || '');
+        });
+        localStorage.setItem(TASK_NOTIFIED_KEY, JSON.stringify(next));
+      } catch (err) {
+        // A blocked Notification must never break the app
+      }
+    }
+
+    /* ---------------- the dialog ---------------- */
+
+    function openTasksModal(preset) {
+      if (myName() && taskScope === 'team') taskScope = 'mine';
+      resetTaskForm(true);
+      renderMyNamePickers();
+      renderTaskTypeOptions();
+      renderTaskJobOptions();
+      renderTaskAssigneeFilter();
+      if (preset === 'due') taskScope = myName() ? 'mine' : 'team';
+
+      updateNotifyButton();
+      renderScopeTabs();
+      renderTasksList();
+      document.getElementById('tasksModal').classList.remove('hidden');
+      if (!tasksFetched) fetchJobTasks({ silent: true });
+      fetchPushStatus();   // refreshes the notification button once the server answers
+    }
+
+    function closeTasksModal() {
+      resetTaskForm(true);
+      document.getElementById('tasksModal').classList.add('hidden');
+    }
+
+    function setTaskScope(scope) {
+      if (!myName() && scope !== 'team') {
+        alert('กรุณาเลือกก่อนว่า "ฉันคือ" ใคร เพื่อให้ระบบแยกงานของคุณออกจากงานของทีมได้ครับ');
+        const sel = document.getElementById(window.innerWidth < 640 ? 'taskMeSelectMobile' : 'taskMeSelect');
+        if (sel) sel.focus();
+        return;
+      }
+      taskScope = scope;
+      renderScopeTabs();
+      renderTasksList();
+    }
+
+    function renderScopeTabs() {
+      const me = myName();
+      const counts = { mine: 0, byme: 0, team: 0 };
+      (state.jobTasks || []).forEach(t => {
+        if (taskIsDone(t)) return;
+        counts.team++;
+        if (!me) return;
+        if (cleanOptionValue(t.Assignee) === me) counts.mine++;
+        else if (cleanOptionValue(t.Created_By) === me) counts.byme++;
+      });
+
+      ['mine', 'byme', 'team'].forEach(k => {
+        const btn = document.querySelector(`[data-scope="${k}"]`);
+        if (!btn) return;
+        const active = taskScope === k;
+        btn.className = 'px-2 py-2 rounded-lg text-xs font-bold transition ' +
+          (active ? 'bg-white text-pts-900 shadow-sm border border-slate-200' : 'text-slate-600 hover:bg-white/60');
+        btn.classList.toggle('opacity-50', !me && k !== 'team');
+        const c = document.getElementById('taskScopeCount' + k.charAt(0).toUpperCase() + k.slice(1));
+        if (c) c.textContent = counts[k] ? '(' + counts[k] + ')' : '';
+      });
+    }
+
+    function renderTaskTypeOptions() {
+      const sel = document.getElementById('taskTypeInput');
+      if (!sel) return;
+      const keep = sel.value;
+      const list = getOptionList('task_types');
+      const types = list.length ? list : DEFAULT_TASK_TYPES;
+      sel.innerHTML = '';
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'ไม่ระบุประเภท';
+      sel.appendChild(none);
+      types.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = t;
+        sel.appendChild(o);
+      });
+      if (keep) {
+        if (!types.includes(keep) && keep !== '') {
+          const o = document.createElement('option');
+          o.value = keep;
+          o.textContent = keep;
+          sel.appendChild(o);
+        }
+        sel.value = keep;
+      }
+    }
+
+    function renderTaskJobOptions() {
+      const sel = document.getElementById('taskJobInput');
+      if (!sel) return;
+      const keep = sel.value;
+      sel.innerHTML = '';
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'ไม่ผูกกับใบงาน (งานทั่วไป)';
+      sel.appendChild(none);
+
+      // Open jobs first - those are the ones people file tasks against
+      const jobs = (state.tasks || []).slice().sort((a, b) => {
+        const ac = isClosedStatus(a.Status) ? 1 : 0;
+        const bc = isClosedStatus(b.Status) ? 1 : 0;
+        if (ac !== bc) return ac - bc;
+        return String(b.Job_ID).localeCompare(String(a.Job_ID), 'th');
+      });
+      jobs.forEach(j => {
+        const o = document.createElement('option');
+        o.value = j.Job_ID;
+        o.textContent = `${j.Job_ID} · ${j.Project_Name || '-'}${isClosedStatus(j.Status) ? ' (ปิดงานแล้ว)' : ''}`;
+        sel.appendChild(o);
+      });
+      if (keep) sel.value = keep;
+    }
+
+    function renderTaskAssigneeFilter() {
+      const sel = document.getElementById('taskFilterAssignee');
+      if (!sel) return;
+      const keep = sel.value;
+      const names = [...new Set((state.jobTasks || []).map(t => cleanOptionValue(t.Assignee)).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'th'));
+      sel.innerHTML = '';
+      const all = document.createElement('option');
+      all.value = '';
+      all.textContent = 'ทุกผู้รับผิดชอบ';
+      sel.appendChild(all);
+      names.forEach(n => {
+        const o = document.createElement('option');
+        o.value = n;
+        o.textContent = n;
+        sel.appendChild(o);
+      });
+      sel.value = names.includes(keep) ? keep : '';
+    }
+
+    function toggleTaskForm() {
+      const box = document.getElementById('taskFormBox');
+      if (!box) return;
+      if (box.classList.contains('hidden')) {
+        resetTaskForm();
+        box.classList.remove('hidden');
+        const el = document.getElementById('taskTitleInput');
+        if (el && !isMobileViewport()) el.focus();
+      } else {
+        resetTaskForm(true);
+      }
+    }
+
+    function resetTaskForm(hide) {
+      taskEditingId = null;
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      set('taskTitleInput', '');
+      set('taskAssigneeInput', myName());      // most tasks are for yourself
+      set('taskDueInput', todayStr());
+      set('taskTimeInput', '');
+      set('taskDetailInput', '');
+      const pr = document.getElementById('taskPriorityInput');
+      if (pr) pr.value = 'Normal';
+      const ty = document.getElementById('taskTypeInput');
+      if (ty) ty.value = '';
+      const job = document.getElementById('taskJobInput');
+      if (job) job.value = '';
+
+      const label = document.getElementById('taskSaveBtnLabel');
+      if (label) label.textContent = 'บันทึก Task';
+      if (hide) {
+        const box = document.getElementById('taskFormBox');
+        if (box) box.classList.add('hidden');
+      }
+    }
+
+    function startEditTask(taskId) {
+      const t = (state.jobTasks || []).find(x => x.Task_ID === taskId);
+      if (!t) return;
+      markTaskRead(t);
+      taskEditingId = taskId;
+
+      renderTaskTypeOptions();
+      renderTaskJobOptions();
+
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      set('taskTitleInput', t.Title);
+      set('taskAssigneeInput', t.Assignee);
+      set('taskDueInput', taskDateOnly(t.Due_Date));
+      set('taskTimeInput', taskHHMM(t.Due_Time));
+      set('taskDetailInput', t.Detail);
+      const pr = document.getElementById('taskPriorityInput');
+      if (pr) pr.value = TASK_PRIORITIES.includes(t.Priority) ? t.Priority : 'Normal';
+
+      const ty = document.getElementById('taskTypeInput');
+      if (ty) {
+        if (t.Type && !Array.from(ty.options).some(o => o.value === t.Type)) {
+          const o = document.createElement('option');
+          o.value = t.Type; o.textContent = t.Type;
+          ty.appendChild(o);
+        }
+        ty.value = t.Type || '';
+      }
+
+      const job = document.getElementById('taskJobInput');
+      if (job) {
+        // The job may be gone - keep the value selectable rather than dropping it
+        if (t.Job_ID && !Array.from(job.options).some(o => o.value === t.Job_ID)) {
+          const o = document.createElement('option');
+          o.value = t.Job_ID; o.textContent = t.Job_ID + ' (ไม่พบใบงานนี้แล้ว)';
+          job.appendChild(o);
+        }
+        job.value = t.Job_ID || '';
+      }
+
+      const label = document.getElementById('taskSaveBtnLabel');
+      if (label) label.textContent = 'บันทึกการแก้ไข';
+      const box = document.getElementById('taskFormBox');
+      if (box) box.classList.remove('hidden');
+      const el = document.getElementById('taskTitleInput');
+      if (el) { el.focus(); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      renderTasksList();
+    }
+
+    async function submitTaskForm() {
+      const get = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+      const focusField = id => { const el = document.getElementById(id); if (el) el.focus(); };
+
+      const title = cleanOptionValue(get('taskTitleInput'));
+      if (!title) { alert('กรุณากรอกชื่อ Task'); focusField('taskTitleInput'); return; }
+      const assignee = cleanOptionValue(get('taskAssigneeInput'));
+      if (!assignee) { alert('กรุณาระบุผู้รับผิดชอบ'); focusField('taskAssigneeInput'); return; }
+      const due = taskDateOnly(get('taskDueInput'));
+      if (!due) { alert('กรุณาระบุวันที่ต้องทำ'); focusField('taskDueInput'); return; }
+
+      const payload = {
+        Task_ID: taskEditingId || '',
+        Title: title,
+        Detail: String(get('taskDetailInput') || '').trim(),
+        Assignee: assignee,
+        Due_Date: due,
+        Due_Time: taskHHMM(get('taskTimeInput')),
+        Job_ID: get('taskJobInput'),
+        Priority: get('taskPriorityInput') || 'Normal',
+        Type: get('taskTypeInput')
+      };
+
+      const ok = await withBusy('taskSaveBtn', 'กำลังบันทึก...', () => saveJobTask(payload));
+      if (!ok) return;
+
+      // A newly typed name should appear in the pickers everywhere else.
+      // Best-effort: the task already saved, so a hiccup here is not an alarm.
+      if (!getOptionList('technicians').includes(assignee)) {
+        await addOptionValue('technicians', assignee, true);
+        renderOptionLists();
+        renderMyNamePickers();
+      }
+
+      showSyncToast(taskEditingId ? 'บันทึกการแก้ไขแล้ว' : `เพิ่ม Task "${title}" แล้ว`);
+      resetTaskForm(true);
+      renderTaskAssigneeFilter();
+      renderScopeTabs();
+      renderTasksList();
+    }
+
+    async function toggleTaskDone(taskId, done) {
+      const t = (state.jobTasks || []).find(x => x.Task_ID === taskId);
+      if (!t) return;
+      const { json, error } = await apiPost({ action: 'TASK_DONE', Task_ID: taskId, Done: !!done, Actor: myName() });
+      if (!json || json.status !== 'success') {
+        alert('อัปเดตสถานะ Task ไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
+        return;
+      }
+      await fetchJobTasks({ silent: true });
+      markActivity();
+      showSyncToast(done ? 'ทำเสร็จแล้ว' : 'ย้ายกลับไปเป็นงานค้าง');
+    }
+
+    async function removeTask(taskId) {
+      const t = (state.jobTasks || []).find(x => x.Task_ID === taskId);
+      if (!t) return;
+      if (!confirm(`ลบ Task "${t.Title}" ออกจากระบบใช่หรือไม่?\n\nการลบนี้ย้อนกลับไม่ได้ครับ`)) return;
+      if (await deleteJobTask(taskId)) showSyncToast('ลบ Task แล้ว');
+    }
+
+    function onTaskSearch(value) {
+      taskQuery = value;
+      renderTasksList();
+    }
+
+    function toggleShowDoneTasks() {
+      taskShowDone = !taskShowDone;
+      renderTasksList();
+    }
+
+    /* ---------------- list ---------------- */
+
+    function taskSearchFields(t) {
+      const job = t.Job_ID ? (state.tasks || []).find(j => j.Job_ID === t.Job_ID) : null;
+      return [t.Title, t.Detail, t.Assignee, t.Created_By, t.Type, t.Job_ID, job && job.Project_Name];
+    }
+
+    function taskCardHtml(t) {
+      const due = taskDue(t);
+      const done = taskIsDone(t);
+      const job = t.Job_ID ? (state.tasks || []).find(j => j.Job_ID === t.Job_ID) : null;
+      const by = t.Created_By && cleanOptionValue(t.Created_By) !== cleanOptionValue(t.Assignee)
+        ? ' · มอบหมายโดย ' + esc(t.Created_By) : '';
+      const tones = {
+        red:   { card: 'bg-rose-50 border-rose-300',   pill: 'bg-rose-600 text-white' },
+        amber: { card: 'bg-amber-50 border-amber-300', pill: 'bg-amber-500 text-white' },
+        blue:  { card: 'bg-white border-slate-200',    pill: 'bg-blue-100 text-blue-800' },
+        slate: { card: 'bg-white border-slate-200',    pill: 'bg-slate-100 text-slate-600' },
+        green: { card: 'bg-emerald-50/60 border-emerald-200', pill: 'bg-emerald-600 text-white' }
+      };
+      const tone = tones[due.tone] || tones.slate;
+      const pr = t.Priority === 'Urgent' ? 'bg-rose-600 text-white'
+        : t.Priority === 'High' ? 'bg-amber-500 text-white' : '';
+
+      return `
+        <div data-task-id="${esc(t.Task_ID)}" class="rounded-2xl border p-3 sm:p-3.5 shadow-xs transition ${tone.card} ${taskEditingId === t.Task_ID ? 'ring-2 ring-pts-800' : ''}">
+          <div class="flex items-start gap-3">
+            <button type="button" data-done class="w-7 h-7 shrink-0 rounded-lg border-2 flex items-center justify-center transition active:scale-90 ${done ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-300 text-transparent hover:border-emerald-500'}" title="${done ? 'ย้ายกลับเป็นงานค้าง' : 'ทำเสร็จแล้ว'}">
+              <i class="fa-solid fa-check text-xs"></i>
+            </button>
+
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-bold text-slate-900 ${done ? 'line-through text-slate-500' : ''}">
+                ${isTaskUnread(t) ? '<span class="inline-block w-2 h-2 rounded-full bg-rose-600 mr-1.5 align-middle" title="ยังไม่ได้เปิดดู"></span>' : ''}${esc(t.Title)}
+              </p>
+              <div class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${tone.pill}">${esc(due.label)}</span>
+                ${pr && !done ? `<span class="px-2 py-0.5 rounded-md font-bold ${pr}">${esc(t.Priority)}</span>` : ''}
+                <span class="text-slate-600"><i class="fa-solid fa-user mr-1 text-slate-400"></i>${esc(t.Assignee)}${by}</span>
+                ${t.Type ? `<span class="text-slate-500"><i class="fa-solid fa-tag mr-1 text-slate-400"></i>${esc(t.Type)}</span>` : ''}
+                ${t.Job_ID ? `<button type="button" data-job class="text-pts-800 font-semibold hover:underline"><i class="fa-solid fa-link mr-1"></i>${esc(t.Job_ID)}${job ? ' · ' + esc(job.Project_Name || '') : ' (ไม่พบใบงาน)'}</button>` : ''}
+              </div>
+              ${t.Detail ? `<p class="mt-1.5 text-[11px] text-slate-600 whitespace-pre-wrap">${esc(t.Detail)}</p>` : ''}
+              ${done && t.Done_By ? `<p class="mt-1 text-[10px] text-emerald-700 font-semibold">เสร็จโดย ${esc(t.Done_By)}${t.Done_At ? ' · ' + esc(t.Done_At) : ''}</p>` : ''}
+            </div>
+
+            <div class="flex items-center gap-1 shrink-0">
+              <button type="button" data-edit class="w-8 h-8 rounded-lg bg-white/80 hover:bg-white border border-slate-300 text-slate-600 transition" title="แก้ไข"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
+              <button type="button" data-del class="w-8 h-8 rounded-lg bg-white/80 hover:bg-rose-50 border border-slate-300 text-rose-600 transition" title="ลบ"><i class="fa-solid fa-trash-can text-xs"></i></button>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function renderTasksList() {
+      const host = document.getElementById('tasksList');
+      if (!host) return;
+
+      const assignee = (document.getElementById('taskFilterAssignee') || {}).value || '';
+      const priority = (document.getElementById('taskFilterPriority') || {}).value || '';
+      const q = cleanOptionValue(taskQuery).toLowerCase();
+
+      let list = (state.jobTasks || []).filter(scopeFilter(taskScope)).filter(t =>
+        (!assignee || cleanOptionValue(t.Assignee) === assignee) &&
+        (!priority || (t.Priority || 'Normal') === priority));
+      if (q) list = list.filter(t => taskSearchFields(t).some(v => String(v || '').toLowerCase().includes(q)));
+
+      const open = list.filter(t => !taskIsDone(t)).sort(byDue);
+      const done = list.filter(taskIsDone).sort((a, b) => String(b.Done_At).localeCompare(String(a.Done_At)));
+      const group = k => open.filter(t => taskDue(t).key === k);
+      const over = group('overdue');
+
+      const section = (title, items, tone) => items.length ? `
+        <section class="space-y-2">
+          <h4 class="text-xs font-bold uppercase tracking-wider flex items-center gap-2 ${tone || 'text-slate-600'}">
+            ${esc(title)}<span class="px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-mono">${items.length}</span>
+          </h4>
+          ${items.map(taskCardHtml).join('')}
+        </section>` : '';
+
+      const empty = q ? `ไม่พบ Task ที่มีคำว่า “${esc(q)}”`
+        : (assignee || priority) ? 'ไม่มี Task ที่ตรงกับตัวกรอง'
+        : taskScope === 'mine' ? 'ไม่มีงานค้างของคุณ 🎉'
+        : taskScope === 'byme' ? 'คุณยังไม่ได้มอบหมายงานให้ใคร'
+        : (state.jobTasks || []).length === 0 ? 'ยังไม่มี Task ในระบบ — กด "เพิ่ม Task" ด้านบนได้เลย' : 'ไม่มีงานค้าง';
+
+      host.innerHTML =
+        (open.length ? '' : `<div class="py-10 text-center bg-white rounded-2xl border border-dashed border-slate-300">
+            <i class="fa-solid fa-clipboard-check text-3xl text-slate-300 mb-2 block"></i>
+            <p class="text-xs font-bold text-slate-600">${empty}</p>
+          </div>`)
+        + section('เกินกำหนด', over, 'text-rose-700')
+        + section('วันนี้', group('today'), 'text-amber-700')
+        + section('พรุ่งนี้', group('soon'), 'text-blue-700')
+        + section('ถัดไป', group('later'))
+        + (done.length ? `<button type="button" data-toggle-done class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition">
+             ${taskShowDone ? 'ซ่อน' : 'แสดง'}งานที่เสร็จแล้ว (${done.length})</button>` : '')
+        + (taskShowDone ? section('เสร็จแล้ว', done, 'text-emerald-700') : '');
+
+      // Wire each card by its own id, never by position: the sections are
+      // rebuilt on every render and an index-based pairing would quietly send
+      // a click to the wrong task.
+      host.querySelectorAll('[data-task-id]').forEach(card => {
+        const t = (state.jobTasks || []).find(x => x.Task_ID === card.dataset.taskId);
+        if (!t) return;
+        card.querySelector('[data-done]').onclick = () => toggleTaskDone(t.Task_ID, !taskIsDone(t));
+        card.querySelector('[data-edit]').onclick = () => startEditTask(t.Task_ID);
+        card.querySelector('[data-del]').onclick = () => removeTask(t.Task_ID);
+        const jobBtn = card.querySelector('[data-job]');
+        if (jobBtn) jobBtn.onclick = () => {
+          const job = (state.tasks || []).find(j => j.Job_ID === t.Job_ID);
+          if (!job) { alert(`ไม่พบใบงาน ${t.Job_ID} ในระบบแล้ว (อาจถูกลบไป)`); return; }
+          markTaskRead(t);
+          closeTasksModal();
+          openDetailModal(t.Job_ID);
+        };
+      });
+      const toggle = host.querySelector('[data-toggle-done]');
+      if (toggle) toggle.onclick = toggleShowDoneTasks;
+
+      const sub = document.getElementById('taskHeaderSub');
+      if (sub) {
+        sub.textContent = `${open.length} งานค้าง` + (over.length ? ` · เกินกำหนด ${over.length}` : '') +
+          (myName() ? '' : ' · ยังไม่ได้เลือกว่าฉันคือใคร');
+      }
+    }
+
+    /* =======================================================================
+     * WEB PUSH - แจ้งเตือนถึงเครื่อง แม้ปิดแอปอยู่
+     *
+     * ยกมาจากแอพงานขาย: หน้าเว็บลงทะเบียน endpoint ของเครื่องไว้ที่หลังบ้าน
+     * แล้วตัวตั้งเวลาใน Apps Script เป็นคนส่ง ข้อความจึงมาถึงแม้ปิดแอป
+     *
+     * ถ้าหลังบ้านยังไม่ได้รัน setupPush() ทุกอย่างในนี้จะเงียบและไม่ทำอะไร
+     * แอปยังเตือนผ่านตัวเลขบนปุ่ม Task กับแถบสีด้านบนตามปกติ
+     * ===================================================================== */
+    let pushConfig = null;        // { ready, running, publicKey, registered }
+    let swRegistration = null;
+
+    function pushSupported() {
+      return 'serviceWorker' in navigator && 'PushManager' in window &&
+             'Notification' in window && window.isSecureContext;
+    }
+
+    async function registerPushServiceWorker() {
+      if (!pushSupported()) return null;
+      if (swRegistration) return swRegistration;
+      try {
+        swRegistration = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+        // Ask once per app start for a newer worker; without this a device can
+        // sit on an old one for hours.
+        if (swRegistration.update) swRegistration.update().catch(() => {});
+        await navigator.serviceWorker.ready;
+        return swRegistration;
+      } catch (err) {
+        swRegistration = null;
+        return null;
+      }
+    }
+
+    async function currentPushSubscription() {
+      const reg = await registerPushServiceWorker();
+      if (!reg) return null;
+      try { return await reg.pushManager.getSubscription(); } catch (err) { return null; }
+    }
+
+    /** Ask the server whether push is configured, and whether this device is on the list */
+    async function fetchPushStatus() {
+      if (!pushSupported() || state.dbMode === 'mock' || !state.apiUrl) { pushConfig = null; return null; }
+      const sub = await currentPushSubscription();
+      const { json } = await apiGetDetailed({ push: '1', endpoint: sub ? sub.endpoint : '' });
+      pushConfig = (json && json.status === 'success' && json.push) ? json.push : null;
+      updateNotifyButton();
+      return pushConfig;
+    }
+
+    function urlBase64ToUint8Array(base64) {
+      const padded = String(base64 || '').replace(/-/g, '+').replace(/_/g, '/');
+      const raw = atob(padded + '='.repeat((4 - padded.length % 4) % 4));
+      const out = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    }
+
+    const subKey = (sub, name) => {
+      const raw = sub.getKey(name);
+      if (!raw) return '';
+      return btoa(String.fromCharCode.apply(null, new Uint8Array(raw)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    };
+
+    /**
+     * Subscribe this device and tell the server. Needs a name, because the
+     * server sends each person only their own tasks.
+     */
+    async function enablePushOnThisDevice() {
+      if (!pushSupported()) return { ok: false, reason: 'unsupported' };
+      if (!pushConfig) await fetchPushStatus();
+      if (!pushConfig || !pushConfig.ready || !pushConfig.publicKey) return { ok: false, reason: 'server' };
+      if (!myName()) return { ok: false, reason: 'noname' };
+
+      const reg = await registerPushServiceWorker();
+      if (!reg) return { ok: false, reason: 'sw' };
+
+      let sub = null;
+      try {
+        sub = await reg.pushManager.getSubscription();
+        // A key change on the server makes an old subscription undeliverable
+        if (sub) {
+          const same = subKey(sub, 'p256dh') && btoa(String.fromCharCode.apply(null, new Uint8Array(sub.options.applicationServerKey || new ArrayBuffer(0))))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') === pushConfig.publicKey;
+          if (!same) { try { await sub.unsubscribe(); } catch (e) {} sub = null; }
+        }
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(pushConfig.publicKey)
+          });
+        }
+      } catch (err) {
+        return { ok: false, reason: 'subscribe' };
+      }
+
+      const { json } = await apiPost({
+        action: 'PUSH_SUB_SAVE',
+        endpoint: sub.endpoint,
+        p256dh: subKey(sub, 'p256dh'),
+        auth: subKey(sub, 'auth'),
+        name: myName(),
+        ua: navigator.userAgent.slice(0, 200)
+      });
+      if (!json || json.status !== 'success') return { ok: false, reason: 'save' };
+
+      pushConfig.registered = true;
+      updateNotifyButton();
+      return { ok: true };
+    }
+
+    /**
+     * Re-register silently when this device is already allowed but the server
+     * has lost it, or the owner's name changed - otherwise the person quietly
+     * stops getting notifications and never finds out why.
+     */
+    async function refreshPushRegistration() {
+      if (!pushConfig || !pushConfig.ready || !myName()) return;
+      if (taskNotifyState() !== 'granted') return;
+      const sub = await currentPushSubscription();
+      if (!sub && pushConfig.registered) return;
+      await enablePushOnThisDevice();
+    }
+
+    async function disablePushOnThisDevice() {
+      const sub = await currentPushSubscription();
+      if (!sub) return;
+      try { await apiPost({ action: 'PUSH_SUB_DELETE', endpoint: sub.endpoint }); } catch (err) {}
+      try { await sub.unsubscribe(); } catch (err) {}
+      if (pushConfig) pushConfig.registered = false;
+      updateNotifyButton();
+    }
+
+    /** Send a test notification to this device, after a delay so the app can be closed */
+    async function sendTestPush() {
+      const sub = await currentPushSubscription();
+      if (!sub) { alert('ยังไม่ได้เปิดการแจ้งเตือนบนเครื่องนี้'); return; }
+      const wait = confirm('จะส่งข้อความทดสอบมาที่เครื่องนี้\n\nกด "ตกลง" แล้วปิดแอป/สลับไปแอปอื่นภายใน 10 วินาที เพื่อดูว่าเด้งจริงแม้ปิดแอป\n(กด "ยกเลิก" เพื่อส่งทันที)');
+      const btn = document.getElementById('taskTestPushBtn');
+      const original = btn ? btn.innerHTML : '';
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i>กำลังส่ง...'; }
+      try {
+        const { json, error } = await apiPost({ action: 'PUSH_TEST', endpoint: sub.endpoint, delay: wait ? 10 : 0 });
+        if (json && json.status === 'success') showSyncToast('ส่งข้อความทดสอบแล้ว');
+        else alert('ส่งข้อความทดสอบไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+      }
+    }
+
+    /**
+     * The service worker tells the page when a push arrives or a notification
+     * is tapped, so an app left open reacts straight away.
+     */
+    function listenToServiceWorker() {
+      if (!('serviceWorker' in navigator)) return;
+      navigator.serviceWorker.addEventListener('message', event => {
+        const data = event.data || {};
+        if (data.type === 'push') {
+          fetchJobTasks({ silent: true });
+        } else if (data.type === 'open-tasks') {
+          fetchJobTasks({ silent: true }).then(() => openTasksModal('due'));
+        }
+      });
+      // Opened from a notification on a cold start
+      try {
+        if (new URLSearchParams(location.search).get('view') === 'tasks') {
+          setTimeout(() => openTasksModal('due'), 1200);
+        }
+      } catch (err) {}
     }
