@@ -1597,7 +1597,7 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (tasks.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="10" class="text-center py-8 text-slate-400 text-sm">
+            <td colspan="10" class="text-center py-8 text-slate-400 text-sm"
               ไม่พบรายการข้อมูลตามเงื่อนไขที่เลือก
             </td>
           </tr>`;
@@ -1680,6 +1680,7 @@ const MAX_PHOTOS_PER_TASK = 100;
               </div>
             </div>
           </td>
+          <td class="py-3 px-2 sm:px-4 align-top">${jobTaskCellHtml(task.Job_ID)}</td>
           <td class="hidden sm:table-cell py-3 px-4 align-top">
             <span class="inline-block px-2.5 py-1 rounded-xl text-xs font-bold ${getStatusBadgeStyle(task.Status)}">
               ${esc(task.Status)}
@@ -1705,6 +1706,14 @@ const MAX_PHOTOS_PER_TASK = 100;
         });
         tr.querySelector('[data-action="preview"]').onclick = (e) => { e.stopPropagation(); openDetailModal(task.Job_ID); };
         tr.querySelector('[data-action="edit"]').onclick = (e) => { e.stopPropagation(); openEditModal(task.Job_ID); };
+        const taskCell = tr.querySelector('[data-job-tasks]');
+        // A job with tasks opens the filtered list; one without goes straight
+        // to a new task already tied to it.
+        if (taskCell) taskCell.onclick = (e) => {
+          e.stopPropagation();
+          if (jobOpenTasks(task.Job_ID).length > 0) openTasksForJobModal(task.Job_ID);
+          else addTaskForJob(task.Job_ID);
+        };
 
         tbody.appendChild(tr);
       });
@@ -2322,9 +2331,15 @@ const MAX_PHOTOS_PER_TASK = 100;
 
       renderDetailSummary(task);
       renderDetailInfoGrid(task);
+      renderDetailTasks(task.Job_ID);
       renderDetailPhotos(task, photos);
       renderDetailDocs(docs);
       renderDetailVideos(videos);
+
+      const viewBtn = document.getElementById('detailViewTasksBtn');
+      if (viewBtn) viewBtn.onclick = () => openTasksForJobModal(task.Job_ID);
+      const addBtn = document.getElementById('detailAddTaskBtn');
+      if (addBtn) addBtn.onclick = () => addTaskForJob(task.Job_ID);
 
       document.getElementById('detailModal').classList.remove('hidden');
     }
@@ -4617,6 +4632,8 @@ const MAX_PHOTOS_PER_TASK = 100;
     state.jobTasks = [];
     let taskEditingId = null;
     let tasksFetched = false;
+    // null = ยังไม่รู้ · true = หลังบ้านพร้อม · false = Apps Script ยังเป็นรุ่นเก่า
+    let taskBackendReady = null;
     let taskScope = 'team';          // switched to 'mine' once a name is set
     let taskQuery = '';
     let taskShowDone = false;
@@ -4827,10 +4844,23 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (state.dbMode === 'mock' || !state.apiUrl) return false;
 
       const { json } = await apiGetDetailed({ tasks: '1' });
-      if (!json || json.status !== 'success' || !Array.isArray(json.tasks)) return false;
+      // An old Code.gs answers ?tasks=1 with the plain job list, so a missing
+      // `tasks` array is how we know the sheet side has not been updated yet.
+      if (!json || json.status !== 'success' || !Array.isArray(json.tasks)) {
+        if (json && json.status === 'success') {
+          taskBackendReady = false;
+          renderTaskBackendNotice();
+        }
+        return false;
+      }
 
+      taskBackendReady = true;
+      const changed = JSON.stringify(state.jobTasks) !== JSON.stringify(json.tasks);
       state.jobTasks = json.tasks;
       tasksFetched = true;
+      // The job table carries a Task column now, so it has to be redrawn when
+      // the task list moves - otherwise a row shows a stale next action.
+      if (changed) renderApp();
       refreshTaskViews();
       if (!options.silent) notifyDueTasks();
       return true;
@@ -4848,7 +4878,20 @@ const MAX_PHOTOS_PER_TASK = 100;
     async function saveJobTask(task) {
       const { json, error } = await apiPost({ action: 'TASK_SAVE', task: { ...task, Actor: myName() } });
       if (!json || json.status !== 'success') {
-        alert('บันทึก Task ไม่สำเร็จ\n\n' + (json && json.message ? json.message : apiErrorText(error)));
+        // "Invalid action type" means the sheet side has no Task code yet -
+        // a generic save error would send someone hunting the wrong problem.
+        const msg = json && json.message ? String(json.message) : '';
+        if (/invalid action/i.test(msg)) {
+          taskBackendReady = false;
+          renderTaskBackendNotice();
+          alert('ยังบันทึก Task ไม่ได้ เพราะสคริปต์ฝั่ง Google Sheet ยังเป็นรุ่นเก่า\n\n' +
+            'วิธีแก้ (ทำครั้งเดียว):\n' +
+            '1. เปิดชีต > ส่วนขยาย > Apps Script\n' +
+            '2. วางไฟล์ Code.gs ตัวใหม่ทับของเดิม แล้วกด Ctrl+S\n' +
+            '3. Deploy > Manage deployments > ✏️ > Version: New version > Deploy');
+          return false;
+        }
+        alert('บันทึก Task ไม่สำเร็จ\n\n' + (msg || apiErrorText(error)));
         return false;
       }
       await fetchJobTasks({ silent: true });
@@ -5028,7 +5071,18 @@ const MAX_PHOTOS_PER_TASK = 100;
       updateNotifyButton();
       renderScopeTabs();
       renderTasksList();
+
+      // An empty list with the form folded away looks like a broken screen -
+      // there is no Save button on it and nothing to edit. Open the form so
+      // the first thing anyone sees is somewhere to type.
+      if ((state.jobTasks || []).length === 0 && preset !== 'due') {
+        const box = document.getElementById('taskFormBox');
+        if (box) box.classList.remove('hidden');
+        updateTaskFormToggle();
+      }
+
       document.getElementById('tasksModal').classList.remove('hidden');
+      renderTaskBackendNotice();
       if (!tasksFetched) fetchJobTasks({ silent: true });
       fetchPushStatus();   // refreshes the notification button once the server answers
     }
@@ -5158,6 +5212,43 @@ const MAX_PHOTOS_PER_TASK = 100;
       } else {
         resetTaskForm(true);
       }
+      updateTaskFormToggle();
+    }
+
+    /** The button has to say what it will do, or an open form looks stuck */
+    function updateTaskFormToggle() {
+      const btn = document.getElementById('taskNewBtn');
+      const box = document.getElementById('taskFormBox');
+      if (!btn || !box) return;
+      const open = !box.classList.contains('hidden');
+      btn.innerHTML = open
+        ? '<i class="fa-solid fa-chevron-up mr-1.5"></i>ปิดฟอร์มเพิ่ม Task'
+        : '<i class="fa-solid fa-plus mr-1.5"></i>เพิ่ม Task';
+    }
+
+    /**
+     * The sheet side carries the Tasks tab. Until Code.gs is updated there,
+     * nothing here can save - so say that plainly instead of letting someone
+     * fill in a form that is going to fail.
+     */
+    function renderTaskBackendNotice() {
+      const notice = document.getElementById('taskBackendNotice');
+      if (!notice) return;
+      const blocked = taskBackendReady === false;
+      notice.classList.toggle('hidden', !blocked);
+
+      const box = document.getElementById('taskFormBox');
+      const addBtn = document.getElementById('taskNewBtn');
+      const saveBtn = document.getElementById('taskSaveBtn');
+      if (blocked) {
+        if (box) box.classList.add('hidden');
+        if (addBtn) { addBtn.disabled = true; addBtn.classList.add('opacity-50', 'cursor-not-allowed'); }
+        if (saveBtn) saveBtn.disabled = true;
+      } else {
+        if (addBtn) { addBtn.disabled = false; addBtn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+        if (saveBtn) saveBtn.disabled = false;
+      }
+      updateTaskFormToggle();
     }
 
     function resetTaskForm(hide) {
@@ -5599,4 +5690,123 @@ const MAX_PHOTOS_PER_TASK = 100;
           setTimeout(() => openTasksModal('due'), 1200);
         }
       } catch (err) {}
+    }
+
+    /* =======================================================================
+     * TASK OVERVIEW PER JOB
+     *
+     * The board answers "what is the state of this job"; it could not answer
+     * "and what does someone still have to DO about it". These helpers put the
+     * next action for each job right in the row, and the full list inside the
+     * job's own dialog.
+     * ===================================================================== */
+
+    /** Open tasks for one job, most urgent first */
+    function jobOpenTasks(jobId) {
+      const id = String(jobId || '').trim();
+      if (!id) return;
+      return (state.jobTasks || [])
+        .filter(t => String(t.Job_ID || '').trim() === id && !taskIsDone(t))
+        .sort(byDue);
+    }
+
+    function jobTaskSummary(jobId) {
+      const open = jobOpenTasks(jobId) || [];
+      if (open.length === 0) return { count: 0 };
+      const worst = open[0];
+      const due = taskDue(worst);
+      return {
+        count: open.length,
+        next: worst,
+        due: due,
+        late: open.filter(t => taskDue(t).key === 'overdue').length,
+        today: open.filter(t => taskDue(t).key === 'today').length
+      };
+    }
+
+    /** The "Task ที่ต้องทำ" cell in the job table */
+    function jobTaskCellHtml(jobId) {
+      const s = jobTaskSummary(jobId);
+      if (s.count === 0) {
+        return `<button type="button" data-job-tasks class="text-xs text-slate-400 hover:text-pts-800 transition" title="ยังไม่มี Task — กดเพื่อเพิ่ม">
+            <i class="fa-regular fa-square-plus mr-1"></i>เพิ่ม
+          </button>`;
+      }
+      const tone = s.late > 0 ? 'bg-rose-100 text-rose-900 border-rose-300'
+        : s.today > 0 ? 'bg-amber-100 text-amber-900 border-amber-300'
+        : 'bg-slate-100 text-slate-700 border-slate-300';
+      const icon = s.late > 0 ? 'fa-triangle-exclamation' : s.today > 0 ? 'fa-bell' : 'fa-list-check';
+      return `<button type="button" data-job-tasks class="text-left w-full group" title="กดเพื่อดู Task ทั้งหมดของใบงานนี้">
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border ${tone}">
+            <i class="fa-solid ${icon}"></i>${s.count} งาน
+          </span>
+          <p class="mt-1 text-[11px] text-slate-700 font-semibold leading-tight line-clamp-2 group-hover:text-pts-800">${esc(s.next.Title)}</p>
+          <p class="text-[10px] text-slate-500">${esc(s.due.label)}${s.next.Assignee ? ' · ' + esc(s.next.Assignee) : ''}</p>
+        </button>`;
+    }
+
+    /** Jump into the Task dialog already filtered to one job */
+    function openTasksForJobModal(jobId) {
+      closeDetailModal();
+      openTasksModal();
+      taskScope = 'team';                       // a job's tasks may belong to anyone
+      const search = document.getElementById('taskSearchInput');
+      if (search) search.value = jobId;
+      taskQuery = jobId;
+      const box = document.getElementById('taskFormBox');
+      if (box) box.classList.add('hidden');
+      updateTaskFormToggle();
+      renderScopeTabs();
+      renderTasksList();
+    }
+
+    /** Start a new task already tied to one job */
+    function addTaskForJob(jobId) {
+      closeDetailModal();
+      openTasksModal();
+      resetTaskForm();
+      renderTaskJobOptions();
+      const box = document.getElementById('taskFormBox');
+      if (box) box.classList.remove('hidden');
+      updateTaskFormToggle();
+      const sel = document.getElementById('taskJobInput');
+      if (sel) sel.value = jobId;
+      const title = document.getElementById('taskTitleInput');
+      if (title) { title.focus(); title.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    }
+
+    /** The Task section inside a job's detail dialog */
+    function renderDetailTasks(jobId) {
+      const host = document.getElementById('detailTasksList');
+      const countEl = document.getElementById('detailTaskCount');
+      if (!host) return;
+
+      const all = (state.jobTasks || []).filter(t => String(t.Job_ID || '').trim() === String(jobId || '').trim());
+      const open = all.filter(t => !taskIsDone(t)).sort(byDue);
+      const done = all.filter(taskIsDone);
+      if (countEl) countEl.textContent = `(ค้าง ${open.length}${done.length ? ' · เสร็จ ' + done.length : ''})`;
+
+      if (all.length === 0) {
+        host.innerHTML = `<p class="text-xs text-slate-400 italic p-1">ยังไม่มี Task ของใบงานนี้ — กด "เพิ่ม Task" เพื่อระบุสิ่งที่ต้องทำต่อ</p>`;
+        return;
+      }
+
+      const tones = { red: 'bg-rose-50 border-rose-300', amber: 'bg-amber-50 border-amber-300', blue: 'bg-white border-slate-200', slate: 'bg-white border-slate-200', green: 'bg-emerald-50/60 border-emerald-200' };
+      const pills = { red: 'bg-rose-600 text-white', amber: 'bg-amber-500 text-white', blue: 'bg-blue-100 text-blue-800', slate: 'bg-slate-100 text-slate-600', green: 'bg-emerald-600 text-white' };
+
+      host.innerHTML = open.concat(done).map(t => {
+        const due = taskDue(t);
+        const isDone = taskIsDone(t);
+        return `<div class="flex items-start gap-2.5 p-2.5 rounded-xl border ${tones[due.tone] || tones.slate}">
+            <i class="fa-solid ${isDone ? 'fa-circle-check text-emerald-600' : 'fa-circle-dot text-slate-400'} mt-0.5 text-xs shrink-0"></i>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-bold text-slate-900 ${isDone ? 'line-through text-slate-500' : ''}">${esc(t.Title)}</p>
+              <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
+                <span class="px-1.5 py-0.5 rounded font-bold ${pills[due.tone] || pills.slate}">${esc(due.label)}</span>
+                <span class="text-slate-600">${esc(t.Assignee || 'ไม่ระบุผู้รับผิดชอบ')}</span>
+                ${t.Type ? `<span class="text-slate-500">${esc(t.Type)}</span>` : ''}
+              </div>
+            </div>
+          </div>`;
+      }).join('');
     }

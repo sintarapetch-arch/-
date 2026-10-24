@@ -490,15 +490,16 @@
         <table class="w-full text-left border-collapse">
           <thead>
             <tr class="bg-slate-800 text-slate-200 text-xs font-semibold uppercase tracking-wider border-b border-slate-700">
+              <!-- ลำดับต้องตรงกับ <td> ใน renderTable() เป๊ะๆ -->
               <th class="py-3.5 px-3 sm:px-4">Job ID</th>
               <th class="py-3.5 px-3 sm:px-4">ชื่อไซต์งาน / ลูกค้า</th>
               <th class="hidden md:table-cell py-3.5 px-4">ฝ่ายย่อย</th>
+              <th class="py-3.5 px-3 sm:px-4">หัวหน้าช่าง</th>
+              <th class="hidden sm:table-cell py-3.5 px-4">วันอนุมัติ PO</th>
+              <th class="py-3.5 px-3 sm:px-4">ครบกำหนด / วันเสร็จ</th>
               <th class="py-3.5 px-3 sm:px-4">ไฟล์แนบ</th>
-              <th class="hidden lg:table-cell py-3.5 px-4">วันอนุมัติ PO</th>
-              <th class="hidden sm:table-cell py-3.5 px-4">ครบกำหนดสัญญา</th>
-              <th class="hidden lg:table-cell py-3.5 px-4">วันที่งานเสร็จจริง</th>
-              <th class="hidden md:table-cell py-3.5 px-4">JSA Safety</th>
-              <th class="py-3.5 px-3 sm:px-4">สถานะ (Status)</th>
+              <th class="py-3.5 px-3 sm:px-4">Task ที่ต้องทำ</th>
+              <th class="hidden sm:table-cell py-3.5 px-4">สถานะ (Status)</th>
               <th class="py-3.5 px-3 sm:px-4 text-center">จัดการ</th>
             </tr>
           </thead>
@@ -1085,6 +1086,25 @@
         <!-- Info grid -->
         <div id="detailInfoGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
 
+        <!-- TASKS FOR THIS JOB -->
+        <div class="space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="fa-solid fa-list-check text-pts-800"></i> Task ที่ต้องทำของใบงานนี้
+              <span class="text-[11px] font-bold text-pts-800 bg-pts-50 px-2 py-0.5 rounded-md border border-pts-200" id="detailTaskCount">(ค้าง 0)</span>
+            </h4>
+            <div class="flex items-center gap-1.5">
+              <button type="button" id="detailViewTasksBtn" class="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-[11px] font-bold transition">
+                <i class="fa-solid fa-arrow-up-right-from-square mr-1"></i>ดูทั้งหมด
+              </button>
+              <button type="button" id="detailAddTaskBtn" class="px-2.5 py-1.5 rounded-lg bg-pts-800 hover:bg-pts-700 text-white text-[11px] font-bold transition active:scale-95">
+                <i class="fa-solid fa-plus mr-1"></i>เพิ่ม Task
+              </button>
+            </div>
+          </div>
+          <div id="detailTasksList" class="space-y-2 p-2 bg-slate-50 rounded-2xl border border-slate-200 min-h-[50px]"></div>
+        </div>
+
         <!-- SITE PHOTOS GALLERY (INSTANT PREVIEW + BULK DOWNLOAD) -->
         <div class="space-y-2">
           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -1550,6 +1570,16 @@
           <button type="button" data-scope="team" onclick="setTaskScope('team')" class="px-2 py-2 rounded-lg text-xs font-bold transition">ทั้งทีม <span id="taskScopeCountTeam" class="font-mono"></span></button>
         </div>
 
+        <!-- Shown only while the sheet side still runs an older Code.gs -->
+        <div id="taskBackendNotice" class="hidden p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900">
+          <p class="text-xs font-bold"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>ยังเพิ่ม Task ไม่ได้ — สคริปต์ฝั่ง Google Sheet ยังเป็นรุ่นเก่า</p>
+          <p class="text-[11px] mt-1 leading-relaxed">
+            ทำครั้งเดียวที่เครื่องไหนก็ได้: เปิดชีต → <b>ส่วนขยาย › Apps Script</b> → วางไฟล์ <b>Code.gs</b> ตัวใหม่ทับของเดิม → <b>Ctrl+S</b><br>
+            แล้วกด <b>Deploy › Manage deployments › ✏️ › Version: New version › Deploy</b><br>
+            เสร็จแล้วรีเฟรชหน้านี้ ปุ่มเพิ่ม Task จะใช้งานได้ทันที
+          </p>
+        </div>
+
         <button type="button" id="taskNewBtn" onclick="toggleTaskForm()" class="w-full px-4 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-sm font-bold shadow-md transition active:scale-95">
           <i class="fa-solid fa-plus mr-1.5"></i>เพิ่ม Task
         </button>
@@ -1641,6 +1671,6 @@
   </div>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=4.2"></script>
+  <script src="script.js?v=4.4"></script>
 </body>
 </html>
