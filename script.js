@@ -5208,7 +5208,11 @@ const MAX_PHOTOS_PER_TASK = 100;
         resetTaskForm();
         box.classList.remove('hidden');
         const el = document.getElementById('taskTitleInput');
-        if (el && !isMobileViewport()) el.focus();
+        if (el) {
+          // Bring the form into view, or on a small screen it opens off-screen
+          box.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          if (!isMobileViewport()) el.focus();
+        }
       } else {
         resetTaskForm(true);
       }

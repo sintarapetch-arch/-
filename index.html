@@ -1586,7 +1586,12 @@
       </div>
 
       <!-- Add / edit form -->
-      <div id="taskFormBox" class="hidden p-3 sm:p-4 mt-2.5 mx-3 sm:mx-4 bg-slate-50 border border-slate-300 rounded-2xl shrink-0 space-y-2.5">
+      <!-- One scrolling area for the form, the filters and the list. The form
+           used to sit outside it, so with the form open its Save button was
+           pushed past the bottom of the dialog with no way to reach it. -->
+      <div class="flex-1 min-h-0 overflow-y-auto scroll-body">
+
+      <div id="taskFormBox" class="hidden p-3 sm:p-4 mt-2.5 mx-3 sm:mx-4 bg-slate-50 border border-slate-300 rounded-2xl space-y-2.5">
         <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5">
           <div class="md:col-span-12">
             <label class="block text-[11px] font-bold text-slate-600 mb-1">ชื่อ Task *</label>
@@ -1629,7 +1634,9 @@
             <textarea id="taskDetailInput" rows="2" maxlength="1000" placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)" class="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pts-800"></textarea>
           </div>
         </div>
-        <div class="flex flex-wrap items-center justify-end gap-2">
+        <!-- Pinned to the bottom of the scroll area so Save stays on screen
+             while the form is being filled in -->
+        <div class="sticky bottom-0 -mx-3 sm:-mx-4 -mb-3 sm:-mb-4 px-3 sm:px-4 py-2.5 bg-slate-50 border-t border-slate-300 rounded-b-2xl flex flex-wrap items-center justify-end gap-2">
           <button type="button" onclick="resetTaskForm(true)" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition">ยกเลิก</button>
           <button type="button" id="taskSaveBtn" onclick="submitTaskForm()" class="px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md transition active:scale-95">
             <i class="fa-solid fa-floppy-disk mr-1.5"></i><span id="taskSaveBtnLabel">บันทึก Task</span>
@@ -1637,8 +1644,8 @@
         </div>
       </div>
 
-      <!-- Search + filters -->
-      <div class="px-3 sm:px-4 py-2.5 mt-2.5 bg-white border-y border-slate-200 flex flex-wrap items-center gap-2 shrink-0">
+      <!-- Search + filters: sticky so they stay reachable while the list scrolls -->
+      <div class="sticky top-0 z-10 px-3 sm:px-4 py-2.5 mt-2.5 bg-white border-y border-slate-200 flex flex-wrap items-center gap-2">
         <div class="relative flex-1 min-w-[160px]">
           <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
           <input type="text" id="taskSearchInput" oninput="onTaskSearch(this.value)" placeholder="ค้นหา Task / ผู้รับผิดชอบ / ใบงาน" autocomplete="off" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-pts-800/30">
@@ -1653,7 +1660,9 @@
         </select>
       </div>
 
-      <div id="tasksList" class="p-3 sm:p-4 space-y-3 flex-1 overflow-y-auto scroll-body bg-slate-50/60"></div>
+      <div id="tasksList" class="p-3 sm:p-4 space-y-3 bg-slate-50/60"></div>
+
+      </div><!-- /scroll area -->
 
       <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 safe-bottom shrink-0">
         <div class="flex flex-wrap items-center gap-2">
@@ -1671,6 +1680,6 @@
   </div>
 
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=4.4"></script>
+  <script src="script.js?v=4.5"></script>
 </body>
 </html>
