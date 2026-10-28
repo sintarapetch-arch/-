@@ -351,6 +351,11 @@ function doGet(e) {
       return jsonResponse({ status: "success", tasks: readJobTasks(), rev: getRevision() }, e);
     }
 
+    // บันทึกประวัติการใช้งาน (แยกไว้ตรวจสอบ)
+    if (e && e.parameter && e.parameter.audit === "1") {
+      return jsonResponse({ status: "success", audit: readAuditLog(e.parameter.limit) }, e);
+    }
+
     // Web Push: is it set up, and is this device registered
     if (e && e.parameter && e.parameter.push === "1") {
       return jsonResponse({ status: "success", push: pushStatusPayload(e.parameter.endpoint || "") }, e);
@@ -671,6 +676,10 @@ function handleCreate(sheet, task, e) {
 
   invalidateCache();
 
+  logAudit_("เปิดใบงานใหม่", claim.jobId, auditMeta_(task),
+    (task.Project_Name || "") + " · " + (task.Sub_Department || ""),
+    attachmentDeltaText_(null, attachmentSnapshotCounts_(attachments)), "");
+
   return jsonResponse({
     status: "success",
     message: "Task created successfully",
@@ -693,6 +702,8 @@ function handleUpdate(sheet, task, e) {
   const warnings = [];
   const attachments = uploadTaskAttachments(task, warnings); // slow - stays outside the lock
 
+  let auditGuard = null;
+  let auditAfter = null;
   const found = withSheetLock(function () {
     const headers = getHeaders(sheet);
     const jobIdIndex = headers.indexOf("Job_ID");
@@ -728,7 +739,14 @@ function handleUpdate(sheet, task, e) {
     });
     flushRun();
 
-    writeAttachmentCells(sheet, headers, foundRow, attachments);
+    const guard = {
+      before: attachmentCounts_(sheet, headers, foundRow),
+      allowClear: task.Allow_Clear_Attachments === true || String(task.Allow_Clear_Attachments) === "true",
+      blocked: []
+    };
+    writeAttachmentCells(sheet, headers, foundRow, attachments, guard);
+    auditGuard = guard;
+    auditAfter = attachmentCounts_(sheet, headers, foundRow);
     return true;
   });
 
@@ -737,6 +755,11 @@ function handleUpdate(sheet, task, e) {
   }
 
   invalidateCache();
+
+  logAudit_("แก้ไขใบงาน", jobId, auditMeta_(task),
+    "สถานะ: " + (task.Status || "-") + (auditGuard && auditGuard.blocked.length ? " · กันการลบไฟล์แนบไว้" : ""),
+    attachmentDeltaText_(auditGuard && auditGuard.before, auditAfter),
+    auditGuard && auditGuard.blocked.length ? "ไม่เขียนทับคอลัมน์ที่จะกลายเป็นว่าง: " + auditGuard.blocked.join(", ") : "");
 
   return jsonResponse({
     status: "success",
@@ -748,7 +771,17 @@ function handleUpdate(sheet, task, e) {
   }, e);
 }
 
+function attachmentSnapshotCounts_(attachments) {
+  const out = {};
+  LINK_COLUMN_NAMES.forEach(function (name) {
+    out[name] = attachments && attachments.entries && attachments.entries[name]
+      ? attachments.entries[name].length : 0;
+  });
+  return out;
+}
+
 function handleDelete(sheet, jobId, e) {
+  logAudit_("ลบใบงาน", jobId, auditMeta_(e && e.parameter ? e.parameter : {}), "", "", "ลบทั้งแถวออกจากชีต");
   const deleted = withSheetLock(function () {
     const headers = getHeaders(sheet);
     const jobIdIndex = headers.indexOf("Job_ID");
@@ -775,9 +808,10 @@ function handleDelete(sheet, jobId, e) {
 /**
  * Writes all three attachment columns as rich text, one clickable line per file.
  */
-function writeAttachmentCells(sheet, headers, rowIndex, attachments) {
+function writeAttachmentCells(sheet, headers, rowIndex, attachments, guard) {
   // Drive unavailable: leave whatever is already in the sheet alone.
   if (attachments.driveBlocked) return;
+  guard = guard || {};
 
   // SPEED: a save that touches no attachment field should cost zero Sheets calls
   // here. It used to still read and compare the row height every time.
@@ -789,6 +823,15 @@ function writeAttachmentCells(sheet, headers, rowIndex, attachments) {
   let maxLines = 1;
   names.forEach(function (name) {
     const entries = attachments.entries[name];
+    // กันข้อมูลหาย: ถ้าของใหม่ว่าง แต่ในชีตยังมีไฟล์อยู่ และผู้ใช้ไม่ได้กดลบเอง
+    // ให้ข้ามคอลัมน์นั้นไป ดีกว่าลบลิงก์ทิ้งแล้วกู้ไม่ได้
+    if (entries.length === 0 && !guard.allowClear) {
+      const had = guard.before && guard.before[name];
+      if (had > 0) {
+        if (guard.blocked) guard.blocked.push(name + " (" + had + ")");
+        return;
+      }
+    }
     maxLines = Math.max(maxLines, entries.length);
     writeLinkedListCell(sheet, headers, rowIndex, name, entries);
   });
@@ -1539,6 +1582,9 @@ function handleSaveJobTask(task, e) {
   });
 
   invalidateCache();
+  logAudit_(cleanTaskText(task.Task_ID, 40) ? "แก้ไข Task" : "เพิ่ม Task", saved.Task_ID, { actor: actor, device: shortDevice_(task.Device) },
+    saved.Title + " → " + saved.Assignee + " (กำหนด " + saved.Due_Date + (saved.Due_Time ? " " + saved.Due_Time : "") + ")",
+    "", saved.Job_ID ? "ใบงาน " + saved.Job_ID : "");
   // Hand a newly assigned task straight to the person's devices; everything
   // else is left to the one-minute timer.
   if (typeof afterTaskWrite_ === "function") {
@@ -1591,6 +1637,8 @@ function handleSetJobTaskDone(input, e) {
   if (!saved) return jsonResponse({ status: "error", message: "ไม่พบ Task นี้ อาจถูกลบไปแล้ว" }, e);
 
   invalidateCache();
+  logAudit_(done ? "ทำ Task เสร็จ" : "ย้าย Task กลับเป็นค้าง", id, { actor: actor, device: shortDevice_(input.Device) },
+    saved.Title, "", saved.Job_ID ? "ใบงาน " + saved.Job_ID : "");
   if (typeof afterTaskWrite_ === "function") afterTaskWrite_(null, "");
   return jsonResponse({ status: "success", task: saved, rev: getRevision() }, e);
 }
@@ -1615,6 +1663,7 @@ function handleDeleteJobTask(taskId, e) {
   if (!removed) return jsonResponse({ status: "error", message: "ไม่พบ Task นี้ อาจถูกลบไปแล้ว" }, e);
 
   invalidateCache();
+  logAudit_("ลบ Task", id, auditMeta_({}), "", "", "");
   return jsonResponse({ status: "success", task_id: id, rev: getRevision() }, e);
 }
 
@@ -2313,6 +2362,270 @@ function encryptPush_(text, p256dhB64, authB64, fixed) {
   const cipher = aesGcmEncrypt_(cek, nonce, utf8_(text).concat([2]));   // 0x02 = ระเบียนสุดท้าย
   return salt.concat([0, 0, 16, 0], [65], eph.pub, cipher);              // rs = 4096
 }
+/* ---------------------------------------------------------------------------
+ * AUDIT LOG - ใครกดอะไร เปลี่ยนอะไรไปบ้าง
+ *
+ * เก็บแยกไว้ในแท็บ "Audit_Log" ของชีตเดียวกัน ไม่ยุ่งกับข้อมูลใบงาน
+ * มีไว้ตรวจย้อนหลังโดยเฉพาะ - เปิดดูเองในชีตได้ หรืออ่านผ่าน ?audit=1
+ *
+ * จุดสำคัญคือคอลัมน์ Attachments: บันทึก "ก่อน -> หลัง" ของจำนวนรูป/ไฟล์ทุกครั้ง
+ * ที่มีการเขียนทับ ถ้าวันหนึ่งไฟล์แนบหายอีก จะเห็นทันทีว่าการบันทึกครั้งไหน
+ * ทำให้หาย ใครเป็นคนกด และกดจากเครื่องอะไร
+ * ------------------------------------------------------------------------- */
+const AUDIT_SHEET_NAME = "Audit_Log";
+const AUDIT_HEADERS = ["Time", "Action", "Target_ID", "Actor", "Device", "Summary", "Attachments", "Detail"];
+const AUDIT_MAX_ROWS = 5000;   // เกินนี้ตัดแถวเก่าทิ้ง ไม่ให้ชีตบวม
+
+function getAuditSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(AUDIT_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(AUDIT_SHEET_NAME);
+    sheet.getRange(1, 1, 1, AUDIT_HEADERS.length).setValues([AUDIT_HEADERS])
+      .setFontWeight("bold").setBackground("#991B1B").setFontColor("#FFFFFF");
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 140);
+    sheet.setColumnWidth(2, 120);
+    sheet.setColumnWidth(6, 300);
+    sheet.setColumnWidth(7, 230);
+    sheet.setColumnWidth(8, 320);
+  }
+  return sheet;
+}
+
+/**
+ * เขียนหนึ่งบรรทัดลงบันทึกประวัติ
+ * ห้ามทำให้การบันทึกข้อมูลจริงล้มเหลวเด็ดขาด - ถ้าเขียนไม่ได้ก็ปล่อยผ่าน
+ */
+function logAudit_(action, targetId, meta, summary, attachments, detail) {
+  try {
+    meta = meta || {};
+    const sheet = getAuditSheet_();
+    sheet.appendRow([
+      Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy HH:mm:ss"),
+      String(action || ""),
+      String(targetId || ""),
+      String(meta.actor || "ไม่ระบุ").slice(0, 120),
+      String(meta.device || "").slice(0, 160),
+      String(summary || "").slice(0, 400),
+      String(attachments || ""),
+      String(detail || "").slice(0, 500)
+    ]);
+    const last = sheet.getLastRow();
+    if (last > AUDIT_MAX_ROWS + 1) sheet.deleteRows(2, last - AUDIT_MAX_ROWS - 1);
+  } catch (err) { /* บันทึกประวัติพลาดต้องไม่ทำให้งานหลักพัง */ }
+}
+
+/** ย่อชื่อเบราว์เซอร์/เครื่องให้อ่านง่าย */
+function shortDevice_(ua) {
+  const s = String(ua || "");
+  if (!s) return "";
+  const os = /iPhone|iPad/.test(s) ? "iPhone/iPad" : /Android/.test(s) ? "Android"
+    : /Windows/.test(s) ? "Windows" : /Macintosh/.test(s) ? "Mac" : "อื่นๆ";
+  const br = /Edg\//.test(s) ? "Edge" : /Chrome\//.test(s) ? "Chrome"
+    : /Safari\//.test(s) ? "Safari" : /Firefox\//.test(s) ? "Firefox" : "";
+  return (os + (br ? " · " + br : "")).slice(0, 60);
+}
+
+function auditMeta_(req) {
+  req = req || {};
+  return { actor: cleanTaskText(req.Actor || req.actor, 120), device: shortDevice_(req.Device || req.device) };
+}
+
+/** นับไฟล์แนบที่อยู่ในแถวตอนนี้ (อ่านจากลิงก์ในเซลล์) */
+function attachmentCounts_(sheet, headers, rowIndex) {
+  const out = {};
+  try {
+    const lastCol = Math.max(sheet.getLastColumn(), 1);
+    const values = sheet.getRange(rowIndex, 1, 1, lastCol).getValues()[0];
+    const rich = sheet.getRange(rowIndex, 1, 1, lastCol).getRichTextValues()[0];
+    LINK_COLUMN_NAMES.forEach(function (name) {
+      const idx = headers.indexOf(name);
+      if (idx === -1) { out[name] = 0; return; }
+      const cfg = LINK_COLUMNS[name];
+      const list = cfg.kind === "photo"
+        ? extractLinkedUrls(rich[idx], values[idx])
+        : extractLinkedFiles(rich[idx], values[idx], cfg);
+      out[name] = list.length;
+    });
+  } catch (err) {
+    LINK_COLUMN_NAMES.forEach(function (name) { out[name] = -1; });
+  }
+  return out;
+}
+
+const AUDIT_SHORT_NAME_ = { Site_Photos: "รูป", Document_Files: "เอกสาร", Video_Files: "วิดีโอ", Delivery_Doc: "ใบส่งมอบ" };
+
+/** ข้อความ "รูป 30→0 · เอกสาร 2→2" สำหรับคอลัมน์ Attachments */
+function attachmentDeltaText_(before, after) {
+  const parts = [];
+  LINK_COLUMN_NAMES.forEach(function (name) {
+    const b = before && before.hasOwnProperty(name) ? before[name] : null;
+    const a = after && after.hasOwnProperty(name) ? after[name] : null;
+    if (b === null && a === null) return;
+    if (a === null) { if (b) parts.push(AUDIT_SHORT_NAME_[name] + " " + b + "→(ไม่แตะ)"); return; }
+    if (b === a) { if (b) parts.push(AUDIT_SHORT_NAME_[name] + " " + b); return; }
+    parts.push(AUDIT_SHORT_NAME_[name] + " " + b + "→" + a + (a < b ? " ⚠ลดลง" : ""));
+  });
+  return parts.join(" · ");
+}
+
+/** อ่านบันทึกประวัติกลับมา (ล่าสุดอยู่บนสุด) */
+function readAuditLog(limit) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(AUDIT_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const want = Math.min(Math.max(Number(limit) || 200, 1), 1000);
+  const total = sheet.getLastRow() - 1;
+  const take = Math.min(want, total);
+  const rows = sheet.getRange(sheet.getLastRow() - take + 1, 1, take, AUDIT_HEADERS.length).getValues();
+  const out = [];
+  rows.forEach(function (r) {
+    const item = {};
+    AUDIT_HEADERS.forEach(function (h, i) {
+      const v = r[i];
+      item[h] = v instanceof Date ? Utilities.formatDate(v, "Asia/Bangkok", "dd/MM/yyyy HH:mm:ss") : String(v === undefined || v === null ? "" : v);
+    });
+    out.push(item);
+  });
+  return out.reverse();
+}
+
+/* ---------------------------------------------------------------------------
+ * กู้คืนไฟล์แนบจาก Google Drive
+ *
+ * ไฟล์ทุกชิ้นยังอยู่ใน Drive เสมอ (PTS_Engineering_Attachments/<รหัสงาน>/Photos
+ * ฯลฯ) ที่หายคือ "ลิงก์ในเซลล์ของชีต" เท่านั้น ฟังก์ชันนี้จึงไล่อ่านโฟลเดอร์
+ * ของแต่ละใบงานแล้วเขียนลิงก์กลับเข้าเซลล์ให้
+ *
+ * ปลอดภัย: เขียนเฉพาะเซลล์ที่ "ว่าง" เท่านั้น เซลล์ไหนยังมีลิงก์อยู่จะไม่แตะ
+ * จึงรันซ้ำได้ไม่เสียหาย และไม่ทับของที่ถูกต้องอยู่แล้ว
+ *
+ * วิธีใช้ (ใน Apps Script Editor)
+ *   1. เลือกฟังก์ชัน previewRecoverAttachments แล้วกด Run  → ดูว่าจะกู้ได้กี่ใบงาน
+ *      (โหมดดูอย่างเดียว ไม่แก้ชีต)
+ *   2. ถ้าผลถูกต้อง เลือก recoverAttachmentsFromDrive แล้วกด Run → เขียนกลับจริง
+ *   ดูผลได้ที่ Execution log และแท็บ Audit_Log
+ * ------------------------------------------------------------------------- */
+
+/** โหมดดูอย่างเดียว - ไม่แก้ไขชีต */
+function previewRecoverAttachments() { return recoverAttachments_(true); }
+
+/** กู้คืนจริง */
+function recoverAttachmentsFromDrive() { return recoverAttachments_(false); }
+
+/** เรียงไฟล์ตามชื่อแบบเข้าใจตัวเลข (_2 มาก่อน _10) */
+function naturalCompare_(a, b) {
+  const ax = String(a).match(/\d+|\D+/g) || [];
+  const bx = String(b).match(/\d+|\D+/g) || [];
+  for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
+    const x = ax[i], y = bx[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
+    if (nx && ny) { const d = Number(x) - Number(y); if (d) return d; }
+    else if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+function humanSize_(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+
+/** ไฟล์ในโฟลเดอร์ย่อยของใบงาน เรียงตามชื่อ - ไม่สร้างโฟลเดอร์ใหม่ */
+function filesInJobFolder_(rootFolder, jobId, category) {
+  const jobIt = rootFolder.getFoldersByName(jobId);
+  if (!jobIt.hasNext()) return [];
+  const catIt = jobIt.next().getFoldersByName(category);
+  if (!catIt.hasNext()) return [];
+
+  const out = [];
+  const it = catIt.next().getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    out.push({ id: f.getId(), name: f.getName(), size: f.getSize() });
+  }
+  out.sort(function (a, b) { return naturalCompare_(a.name, b.name); });
+  return out;
+}
+
+function recoverAttachments_(dryRun) {
+  const sheet = getOrCreateSheet();
+  const headers = getHeaders(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return "ไม่มีข้อมูลใบงาน";
+
+  let root;
+  try {
+    root = getRootFolder();
+  } catch (err) {
+    return "เปิดโฟลเดอร์ Drive ไม่ได้: " + err;
+  }
+
+  const jobCol = headers.indexOf("Job_ID");
+  if (jobCol === -1) return "ไม่พบคอลัมน์ Job_ID";
+
+  const report = [];
+  let restoredJobs = 0, restoredFiles = 0, skipped = 0;
+
+  for (let row = 2; row <= lastRow; row++) {
+    const jobId = String(sheet.getRange(row, jobCol + 1).getValue() || "").trim();
+    if (!jobId) continue;
+
+    const have = attachmentCounts_(sheet, headers, row);
+    const found = {};
+    let jobTouched = false;
+
+    LINK_COLUMN_NAMES.forEach(function (name) {
+      if (have[name] > 0) return;              // เซลล์นี้ยังมีลิงก์อยู่ - ไม่แตะ
+      const cfg = LINK_COLUMNS[name];
+      const files = filesInJobFolder_(root, jobId, cfg.folder);
+      if (files.length === 0) return;
+
+      const entries = files.map(function (f, i) {
+        const url = driveViewUrl(f.id);
+        return cfg.kind === "photo"
+          ? { label: cfg.icon + " รูปที่ " + (i + 1), url: url }
+          : { label: cfg.icon + " " + f.name + SIZE_SEPARATOR + humanSize_(f.size), url: url };
+      });
+
+      found[name] = entries.length;
+      restoredFiles += entries.length;
+      jobTouched = true;
+      if (!dryRun) writeLinkedListCell(sheet, headers, row, name, entries);
+    });
+
+    if (jobTouched) {
+      restoredJobs++;
+      const text = LINK_COLUMN_NAMES.filter(function (n) { return found[n]; })
+        .map(function (n) { return AUDIT_SHORT_NAME_[n] + " " + found[n]; }).join(" · ");
+      report.push(jobId + ": " + text);
+      if (!dryRun) {
+        logAudit_("กู้คืนไฟล์แนบจาก Drive", jobId, { actor: "ระบบ (Apps Script)", device: "" },
+          "เติมลิงก์กลับเข้าเซลล์ที่ว่างอยู่", text, "");
+      }
+    } else if (LINK_COLUMN_NAMES.some(function (n) { return have[n] > 0; })) {
+      skipped++;
+    }
+  }
+
+  if (!dryRun && restoredJobs > 0) {
+    SpreadsheetApp.flush();
+    invalidateCache();
+  }
+
+  const head = (dryRun ? "[ดูอย่างเดียว ยังไม่แก้ชีต] " : "[กู้คืนแล้ว] ") +
+    "ใบงานที่กู้ได้ " + restoredJobs + " ใบ · ไฟล์รวม " + restoredFiles + " ไฟล์" +
+    " · ข้ามเพราะยังมีลิงก์อยู่ " + skipped + " ใบ";
+  Logger.log(head);
+  report.slice(0, 80).forEach(function (line) { Logger.log("  " + line); });
+  if (report.length > 80) Logger.log("  …และอีก " + (report.length - 80) + " ใบงาน");
+  return head;
+}
+
 function jsonResponse(obj, e) {
   return rawJsonResponse(JSON.stringify(obj), e);
 }

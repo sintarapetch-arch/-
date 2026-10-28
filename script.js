@@ -846,6 +846,20 @@ const MAX_PHOTOS_PER_TASK = 100;
     const ATTACHMENT_FIELDS = ['Site_Photos', 'Document_Files', 'Video_Files', 'Delivery_Doc'];
 
     /**
+     * ผู้ใช้กดลบไฟล์แนบเองในรอบแก้ไขนี้หรือไม่
+     *
+     * หลังบ้านจะไม่ยอมล้างเซลล์ไฟล์แนบที่มีข้อมูลอยู่ ถ้าไม่ได้ส่งธงนี้ไปด้วย -
+     * กันเคสที่แอพเผลอส่งรายการว่างกลับไปแล้วลิงก์รูปในชีตหายถาวร
+     */
+    let attachmentsTouched = false;
+
+    // ข้อมูลประกอบทุกครั้งที่เขียน ใช้ในบันทึกประวัติ (แท็บ Audit_Log)
+    function writeMeta() {
+      return { Actor: (typeof myName === 'function' ? myName() : '') || 'ไม่ระบุ',
+               Device: navigator.userAgent.slice(0, 200) };
+    }
+
+    /**
      * Splits a task into the text fields and the attachment fields, and reports
      * whether any attachment still holds a Base64 payload that has to be pushed
      * to Drive.
@@ -895,9 +909,12 @@ const MAX_PHOTOS_PER_TASK = 100;
       const split = splitAttachments(task);
       const deferFiles = split.pendingFiles > 0;
 
+      const payload = { ...(deferFiles ? split.core : task), ...writeMeta() };
+      // ใบงานใหม่เขียนไฟล์แนบได้เสมอ ส่วนการแก้ไขต้องเป็นการกดลบของผู้ใช้เท่านั้น
+      if (isNew || attachmentsTouched) payload.Allow_Clear_Attachments = true;
       const { json, error } = await apiPost({
         action: isNew ? 'CREATE' : 'UPDATE',
-        data: deferFiles ? split.core : task
+        data: payload
       });
 
       if (!json) {
@@ -1075,7 +1092,7 @@ const MAX_PHOTOS_PER_TASK = 100;
             showUploadProgress(`เชื่อมต่อขัดข้อง กำลังลองส่งใหม่ (ครั้งที่ ${attempt}/${UPLOAD_BATCH_RETRIES})...`, currentFileName, percent, `${formatBytes(uploadedBytes)} / ${formatBytes(totalBytesToUpload)}`);
             await delay(1500 * attempt);
           }
-          const res = await apiPost({ action: 'UPDATE', data: data });
+          const res = await apiPost({ action: 'UPDATE', data: { ...data, ...writeMeta(), Allow_Clear_Attachments: true } });
           json = res.json;
           error = res.error;
           const transient = !json && (error === 'timeout' || error === 'network');
@@ -2136,6 +2153,7 @@ const MAX_PHOTOS_PER_TASK = 100;
     }
 
     function removeAttachment(mode, category, index) {
+      attachmentsTouched = true;   // ผู้ใช้กดลบเอง
       if (mode === 'new') {
         if (category === 'photo') { state.tempNewPhotos.splice(index, 1); renderPhotosPreview('new'); }
         if (category === 'doc') { state.tempNewDocs.splice(index, 1); renderDocsPreview('new'); }
@@ -2694,6 +2712,7 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (!task) return;
 
       state.currentEditingTask = { ...task };
+      attachmentsTouched = false;   // เริ่มรอบแก้ไขใหม่
       state.tempEditPhotos = getTaskAttachments(task, 'Site_Photos');
       state.tempEditDocs = getTaskAttachments(task, 'Document_Files');
       state.tempEditVideos = getTaskAttachments(task, 'Video_Files');
@@ -3166,6 +3185,7 @@ const MAX_PHOTOS_PER_TASK = 100;
       if (!task) return;
 
       if (!confirm('คุณต้องการลบไฟล์ใบส่งมอบงานนี้ออกจากระบบใช่หรือไม่?')) return;
+      attachmentsTouched = true;   // ผู้ใช้กดลบเอง
 
       const current = getTaskAttachments(task, 'Delivery_Doc');
       if (index >= 0 && index < current.length) {
@@ -5812,5 +5832,71 @@ const MAX_PHOTOS_PER_TASK = 100;
               </div>
             </div>
           </div>`;
+      }).join('');
+    }
+
+
+    /* =======================================================================
+     * AUDIT LOG VIEWER - ดูว่าใครกดอะไรไปบ้าง
+     *
+     * อ่านจากแท็บ Audit_Log ที่หลังบ้านเขียนไว้ทุกครั้งที่มีการบันทึก
+     * แยกออกมาเป็นหน้าต่างของตัวเอง สำหรับไล่ตรวจย้อนหลังโดยเฉพาะ
+     * ===================================================================== */
+    async function openAuditModal() {
+      const modal = document.getElementById('auditModal');
+      const host = document.getElementById('auditList');
+      if (!modal || !host) return;
+      modal.classList.remove('hidden');
+      host.innerHTML = '<p class="text-xs text-slate-500 p-2"><i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i>กำลังโหลดประวัติ...</p>';
+
+      const { json } = await apiGetDetailed({ audit: '1', limit: '300' });
+      if (!json || json.status !== 'success' || !Array.isArray(json.audit)) {
+        host.innerHTML = '<div class="p-3 bg-amber-50 border border-amber-300 rounded-xl text-[11px] text-amber-900">ยังอ่านประวัติไม่ได้ — สคริปต์ฝั่ง Google Sheet ยังเป็นรุ่นเก่า กรุณาวาง Code.gs ใหม่แล้ว Deploy เวอร์ชันใหม่ครับ</div>';
+        return;
+      }
+      renderAuditList(json.audit);
+    }
+
+    function closeAuditModal() {
+      const m = document.getElementById('auditModal');
+      if (m) m.classList.add('hidden');
+    }
+
+    let auditRows = [];
+    function renderAuditList(rows) {
+      if (rows) auditRows = rows;
+      const host = document.getElementById('auditList');
+      const q = cleanOptionValue((document.getElementById('auditSearch') || {}).value).toLowerCase();
+      const onlyWarn = !!(document.getElementById('auditOnlyWarn') || {}).checked;
+      if (!host) return;
+
+      let list = auditRows.slice();
+      if (onlyWarn) list = list.filter(r => /ลดลง|ไม่เขียนทับ|ลบ/.test(String(r.Attachments) + String(r.Detail) + String(r.Action)));
+      if (q) list = list.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q)));
+
+      const count = document.getElementById('auditCount');
+      if (count) count.textContent = '(' + list.length + ' รายการ)';
+
+      if (list.length === 0) {
+        host.innerHTML = '<p class="text-xs text-slate-400 italic p-3 text-center">ไม่พบรายการ</p>';
+        return;
+      }
+
+      host.innerHTML = list.map(r => {
+        const warn = /ลดลง/.test(String(r.Attachments));
+        const blocked = /ไม่เขียนทับ/.test(String(r.Detail));
+        const tone = warn ? 'bg-rose-50 border-rose-300' : blocked ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200';
+        return '<div class="p-2.5 rounded-xl border ' + tone + '">' +
+          '<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">' +
+            '<span class="font-mono text-slate-500">' + esc(r.Time) + '</span>' +
+            '<span class="font-bold text-slate-900">' + esc(r.Action) + '</span>' +
+            (r.Target_ID ? '<span class="font-mono text-pts-800">' + esc(r.Target_ID) + '</span>' : '') +
+            '<span class="text-slate-600"><i class="fa-solid fa-user mr-1 text-slate-400"></i>' + esc(r.Actor) + '</span>' +
+            (r.Device ? '<span class="text-slate-500">' + esc(r.Device) + '</span>' : '') +
+          '</div>' +
+          (r.Summary ? '<p class="mt-1 text-[11px] text-slate-700">' + esc(r.Summary) + '</p>' : '') +
+          (r.Attachments ? '<p class="mt-0.5 text-[11px] font-bold ' + (warn ? 'text-rose-700' : 'text-slate-600') + '"><i class="fa-solid fa-paperclip mr-1"></i>' + esc(r.Attachments) + '</p>' : '') +
+          (r.Detail ? '<p class="mt-0.5 text-[10px] text-slate-500">' + esc(r.Detail) + '</p>' : '') +
+        '</div>';
       }).join('');
     }

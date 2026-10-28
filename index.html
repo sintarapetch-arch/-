@@ -1479,6 +1479,9 @@
       <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex items-center justify-between gap-2 safe-bottom shrink-0">
         <p class="text-[11px] text-slate-500 hidden sm:block">ตัวเลือกที่มีใบงานใช้อยู่จะยังแสดงในรายการจนกว่าใบงานนั้นจะเปลี่ยนค่า</p>
         <div class="flex items-center gap-2 ml-auto">
+          <button type="button" onclick="openAuditModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-200 text-slate-700 text-xs font-bold transition" title="ดูว่าใครกดอะไร แก้อะไรไปบ้าง">
+            <i class="fa-solid fa-clock-rotate-left mr-1.5"></i>ประวัติการใช้งาน
+          </button>
           <button type="button" onclick="closeOptionsModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-200 text-slate-700 text-xs font-bold transition">ยกเลิก</button>
           <button type="button" id="optionsSaveBtn" onclick="saveOptionsModal()" class="px-5 py-2.5 rounded-xl bg-pts-800 hover:bg-pts-700 text-white text-xs font-bold shadow-md transition active:scale-95"><i class="fa-solid fa-floppy-disk mr-1.5"></i>บันทึกตัวเลือก</button>
         </div>
@@ -1679,7 +1682,34 @@
     </div>
   </div>
 
+  <!-- MODAL 11: AUDIT LOG - แยกไว้ตรวจสอบย้อนหลัง -->
+  <div id="auditModal" class="fixed inset-0 z-[80] hidden bg-slate-900/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[88vh]">
+      <div class="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between gap-3 shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-10 h-10 rounded-xl bg-pts-800 flex items-center justify-center text-lg shrink-0"><i class="fa-solid fa-clock-rotate-left"></i></span>
+          <div class="min-w-0">
+            <h3 class="text-base sm:text-lg font-bold">ประวัติการใช้งาน <span id="auditCount" class="text-xs font-normal text-slate-400"></span></h3>
+            <p class="text-xs text-slate-400 truncate">บันทึกทุกครั้งที่มีการเพิ่ม แก้ไข หรือลบ พร้อมจำนวนไฟล์แนบก่อน→หลัง</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeAuditModal()" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition shrink-0"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <div class="px-3 sm:px-4 py-2.5 bg-white border-b border-slate-200 flex flex-wrap items-center gap-2 shrink-0">
+        <input type="text" id="auditSearch" oninput="renderAuditList()" placeholder="ค้นหา รหัสงาน / ชื่อคน / การกระทำ" autocomplete="off" class="flex-1 min-w-[160px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-pts-800/30">
+        <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 cursor-pointer">
+          <input type="checkbox" id="auditOnlyWarn" onchange="renderAuditList()" class="rounded border-slate-300">
+          เฉพาะรายการที่ไฟล์ลดลง / ถูกกัน
+        </label>
+      </div>
+      <div id="auditList" class="p-3 sm:p-4 space-y-2 flex-1 overflow-y-auto scroll-body bg-slate-50/60"></div>
+      <div class="bg-slate-100 p-3 sm:p-4 sm:rounded-b-2xl border-t border-slate-200 flex justify-end safe-bottom shrink-0">
+        <button type="button" onclick="closeAuditModal()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition">ปิดหน้าต่าง</button>
+      </div>
+    </div>
+  </div>
+
   <!-- JAVASCRIPT APPLICATION LOGIC -->
-  <script src="script.js?v=4.5"></script>
+  <script src="script.js?v=4.6"></script>
 </body>
 </html>
