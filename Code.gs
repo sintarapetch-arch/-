@@ -2510,8 +2510,17 @@ function readAuditLog(limit) {
 /** โหมดดูอย่างเดียว - ไม่แก้ไขชีต */
 function previewRecoverAttachments() { return recoverAttachments_(true); }
 
-/** กู้คืนจริง */
+/** กู้คืนจริง - รันซ้ำได้จนกว่าจะขึ้นว่าครบแล้ว */
 function recoverAttachmentsFromDrive() { return recoverAttachments_(false); }
+
+/** เริ่มนับใหม่ตั้งแต่ใบงานแรก (ใช้เมื่ออยากรันซ้ำทั้งหมด) */
+function resetRecoverProgress() {
+  PropertiesService.getScriptProperties().deleteProperty(RECOVER_CURSOR_KEY);
+  return "ล้างตำแหน่งที่ค้างไว้แล้ว รอบหน้าจะเริ่มจากใบงานแรก";
+}
+
+const RECOVER_CURSOR_KEY = "pts_recover_cursor";
+const RECOVER_TIME_BUDGET_MS = 4 * 60 * 1000;   // Apps Script ตัดที่ 6 นาที - เผื่อไว้
 
 /** เรียงไฟล์ตามชื่อแบบเข้าใจตัวเลข (_2 มาก่อน _10) */
 function naturalCompare_(a, b) {
@@ -2535,13 +2544,10 @@ function humanSize_(bytes) {
   return (n / 1048576).toFixed(1) + " MB";
 }
 
-/** ไฟล์ในโฟลเดอร์ย่อยของใบงาน เรียงตามชื่อ - ไม่สร้างโฟลเดอร์ใหม่ */
-function filesInJobFolder_(rootFolder, jobId, category) {
-  const jobIt = rootFolder.getFoldersByName(jobId);
-  if (!jobIt.hasNext()) return [];
-  const catIt = jobIt.next().getFoldersByName(category);
+/** ไฟล์ในโฟลเดอร์หมวดหนึ่งของใบงาน เรียงตามชื่อ - ไม่สร้างโฟลเดอร์ใหม่ */
+function filesInCategory_(jobFolder, category) {
+  const catIt = jobFolder.getFoldersByName(category);
   if (!catIt.hasNext()) return [];
-
   const out = [];
   const it = catIt.next().getFiles();
   while (it.hasNext()) {
@@ -2552,7 +2558,32 @@ function filesInJobFolder_(rootFolder, jobId, category) {
   return out;
 }
 
+/**
+ * อ่านจำนวนไฟล์แนบของทุกแถวในครั้งเดียว
+ * (เรียก getRange ทีละแถวกับ 126 ใบงาน ช้าจนหมดเวลา)
+ */
+function allAttachmentCounts_(sheet, headers, lastRow) {
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const range = sheet.getRange(2, 1, lastRow - 1, lastCol);
+  const values = range.getValues();
+  const rich = range.getRichTextValues();
+  return values.map(function (row, i) {
+    const counts = {};
+    LINK_COLUMN_NAMES.forEach(function (name) {
+      const idx = headers.indexOf(name);
+      if (idx === -1) { counts[name] = 0; return; }
+      const cfg = LINK_COLUMNS[name];
+      const list = cfg.kind === "photo"
+        ? extractLinkedUrls(rich[i][idx], row[idx])
+        : extractLinkedFiles(rich[i][idx], row[idx], cfg);
+      counts[name] = list.length;
+    });
+    return counts;
+  });
+}
+
 function recoverAttachments_(dryRun) {
+  const started = Date.now();
   const sheet = getOrCreateSheet();
   const headers = getHeaders(sheet);
   const lastRow = sheet.getLastRow();
@@ -2568,21 +2599,38 @@ function recoverAttachments_(dryRun) {
   const jobCol = headers.indexOf("Job_ID");
   if (jobCol === -1) return "ไม่พบคอลัมน์ Job_ID";
 
-  const report = [];
-  let restoredJobs = 0, restoredFiles = 0, skipped = 0;
+  const props = PropertiesService.getScriptProperties();
+  const startRow = dryRun ? 2 : Math.max(2, Number(props.getProperty(RECOVER_CURSOR_KEY) || 2));
 
-  for (let row = 2; row <= lastRow; row++) {
-    const jobId = String(sheet.getRange(row, jobCol + 1).getValue() || "").trim();
+  const jobIds = sheet.getRange(2, jobCol + 1, lastRow - 1, 1).getValues();
+  const counts = allAttachmentCounts_(sheet, headers, lastRow);
+
+  const report = [];
+  let restoredJobs = 0, restoredFiles = 0, skipped = 0, noFolder = 0, nothingNew = 0;
+  let row = startRow;
+  let ranOut = false;
+
+  for (; row <= lastRow; row++) {
+    if (Date.now() - started > RECOVER_TIME_BUDGET_MS) { ranOut = true; break; }
+
+    const jobId = String(jobIds[row - 2][0] || "").trim();
     if (!jobId) continue;
 
-    const have = attachmentCounts_(sheet, headers, row);
+    const have = counts[row - 2];
+    const needed = LINK_COLUMN_NAMES.filter(function (n) { return have[n] === 0; });
+    if (needed.length === 0) { skipped++; continue; }   // ครบอยู่แล้ว
+
+    // หาโฟลเดอร์ของใบงานครั้งเดียว แล้วค่อยไล่ทีละหมวด
+    const jobIt = root.getFoldersByName(jobId);
+    if (!jobIt.hasNext()) { noFolder++; continue; }
+    const jobFolder = jobIt.next();
+
     const found = {};
     let jobTouched = false;
 
-    LINK_COLUMN_NAMES.forEach(function (name) {
-      if (have[name] > 0) return;              // เซลล์นี้ยังมีลิงก์อยู่ - ไม่แตะ
+    needed.forEach(function (name) {
       const cfg = LINK_COLUMNS[name];
-      const files = filesInJobFolder_(root, jobId, cfg.folder);
+      const files = filesInCategory_(jobFolder, cfg.folder);
       if (files.length === 0) return;
 
       const entries = files.map(function (f, i) {
@@ -2607,22 +2655,29 @@ function recoverAttachments_(dryRun) {
         logAudit_("กู้คืนไฟล์แนบจาก Drive", jobId, { actor: "ระบบ (Apps Script)", device: "" },
           "เติมลิงก์กลับเข้าเซลล์ที่ว่างอยู่", text, "");
       }
-    } else if (LINK_COLUMN_NAMES.some(function (n) { return have[n] > 0; })) {
-      skipped++;
+    } else {
+      nothingNew++;   // มีโฟลเดอร์ แต่ไม่มีไฟล์ที่ต้องเติมเพิ่ม
     }
   }
 
-  if (!dryRun && restoredJobs > 0) {
-    SpreadsheetApp.flush();
-    invalidateCache();
+  if (!dryRun) {
+    if (ranOut) props.setProperty(RECOVER_CURSOR_KEY, String(row));
+    else props.deleteProperty(RECOVER_CURSOR_KEY);
+    if (restoredJobs > 0) { SpreadsheetApp.flush(); invalidateCache(); }
   }
 
+  const done = row - 1;
   const head = (dryRun ? "[ดูอย่างเดียว ยังไม่แก้ชีต] " : "[กู้คืนแล้ว] ") +
-    "ใบงานที่กู้ได้ " + restoredJobs + " ใบ · ไฟล์รวม " + restoredFiles + " ไฟล์" +
-    " · ข้ามเพราะยังมีลิงก์อยู่ " + skipped + " ใบ";
+    "ตรวจถึงแถว " + done + "/" + lastRow +
+    " · กู้ได้ " + restoredJobs + " ใบงาน (" + restoredFiles + " ไฟล์)" +
+    " · ครบอยู่แล้วไม่ต้องแตะ " + skipped + " ใบ" +
+    " · มีโฟลเดอร์แต่ไม่มีไฟล์ให้เติม " + nothingNew + " ใบ" +
+    " · ไม่พบโฟลเดอร์ใน Drive " + noFolder + " ใบ" +
+    (ranOut ? "  ***ใกล้หมดเวลา - กด Run ซ้ำอีกครั้งเพื่อทำต่อจากแถว " + row + "***" : "  (ครบทุกแถวแล้ว)");
+
   Logger.log(head);
-  report.slice(0, 80).forEach(function (line) { Logger.log("  " + line); });
-  if (report.length > 80) Logger.log("  …และอีก " + (report.length - 80) + " ใบงาน");
+  report.slice(0, 100).forEach(function (line) { Logger.log("  " + line); });
+  if (report.length > 100) Logger.log("  …และอีก " + (report.length - 100) + " ใบงาน");
   return head;
 }
 
